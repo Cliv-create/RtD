@@ -29,7 +29,7 @@ class Program
     query($page: PositiveInt!, $limit: PositiveInt!, $userId: ID!) {
       userRates(page: $page, limit: $limit, userId: $userId, targetType: Anime, order: {field: updated_at, order: desc}) {
         id
-        anime { id russian name url genres { name } episodes description }
+        anime { id malId russian name url genres { name } episodes description }
         text
         chapters
         createdAt
@@ -45,6 +45,8 @@ class Program
 
     static async Task Main()
     {
+        // TODO: Add config.json support (or rtd_config.json).
+        // TODO: Add "" characters trimming (for easier file path pasting).
         Console.Write("Enter path to Anime folder: ");
         var rootPath = Console.ReadLine()?.Trim();
         if (string.IsNullOrWhiteSpace(rootPath))
@@ -166,29 +168,24 @@ class Program
 
         sb.AppendLine("---");
 
-        sb.AppendLine($"title: \"{EscapeYaml(anime.Russian)}\"");
+        sb.AppendLine($"id: {anime.Id}");
 
-        sb.AppendLine($"original_title: \"{EscapeYaml(anime.Name)}\"");
-
-        sb.AppendLine($"createdAt: \"{createdAt}\"");
+        sb.AppendLine($"malId: {anime.MalId?.ToString() ?? "null"}");
 
         sb.AppendLine($"updatedAt: \"{updatedAt}\"");
 
+        sb.AppendLine($"createdAt: \"{createdAt}\"");
 
-        sb.AppendLine("aliases:");
-        if (!string.IsNullOrWhiteSpace(anime.AlternativeName))
-            sb.AppendLine($"  - \"{EscapeYaml(anime.AlternativeName)}\"");
-
-        sb.AppendLine($"url: \"{anime.Url}\"");
+        sb.AppendLine($"url: \"{EscapeYaml(anime.Url)}\"");
 
         sb.AppendLine("tags:");
         sb.AppendLine("  - \"anime\"");
-        sb.AppendLine("  - \"watched\"");
+        // sb.AppendLine("  - \"watched\""); // TODO: Is this is needed at all?
 
         sb.AppendLine("genres:");
         foreach (var g in anime.Genres)
-            sb.AppendLine($"  - \"{g.Name}\"");
-
+            sb.AppendLine($"  - \"{EscapeYaml(g.Name)}\"");
+        
         if (anime.Episodes.HasValue)
             sb.AppendLine($"episodes: {anime.Episodes}");
 
@@ -203,14 +200,25 @@ class Program
 
         sb.AppendLine();
         sb.AppendLine("# Review");
-
         sb.AppendLine();
+
         sb.AppendLine(!string.IsNullOrWhiteSpace(reviewText) ? reviewText.Trim() : "*Your review...*");
         sb.AppendLine();
 
         return sb.ToString();
     }
 
+
+    // TODO: Should this have check for the existance of the file or not? Currently the logic uses method that returns only existing files.
+    /// <summary>
+    /// Reads frontmatter of the file (YAML data between two "---"). Starts a StreamReader at given path parameter and searches for a value corresponding to the key.
+    /// </summary>
+    /// <remarks>
+    /// Warning! Expects that the key-value is not array. Method does not check if the file exists or not. This behaviour might change in the future.
+    /// </remarks>
+    /// <param name="path">Path to the file.</param>
+    /// <param name="key">YAML key to be searched for.</param>
+    /// <returns>Value corresponding to the given key (or null).</returns>
     static string ReadFrontmatterValue(string path, string key)
     {
         using var reader = new StreamReader(path);
@@ -236,12 +244,132 @@ class Program
     }
 
 
+    /// <summary>
+    /// Searches and returns YAML array values for a given key. Supports "-" arrays, [ "" ] arrays and non-array values (will return array with 1 element). Does a file existance check.
+    /// </summary>
+    /// <param name="path">Path to the file.</param>
+    /// <param name="key"></param>
+    /// <returns>Array with string values for the given key. If value is not array - will return array with a single value. If the value does not exist will return null. If the file does not exist, will return null. If frontmatter wasn't found returns null pointer to the array.</returns>
+    static List<string>? ReadFrontmatterArrayValues(string path, string key)
+    {
+        if (!File.Exists(path))
+            return null;
+
+        using var reader = new StreamReader(path);
+        bool inFrontmatter = false;
+        bool foundKey = false;
+        List<string>? values = null;
+
+        string? line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            if (line.Trim() == "---")
+            {
+                if (!inFrontmatter)
+                {
+                    inFrontmatter = true;
+                    continue;
+                }
+                break; // End of frontmatter
+            }
+
+            if (!inFrontmatter)
+                continue;
+
+            if (foundKey)
+            {
+                if (line.StartsWith("  - ", StringComparison.Ordinal))
+                {
+                    values!.Add(line[4..].Trim().Trim('"'));
+                }
+                else
+                {
+                    // End of array block
+                    break;
+                }
+            }
+            else if (line.StartsWith(key + ":", StringComparison.Ordinal))
+            {
+                foundKey = true;
+
+                var valuePart = line[(line.IndexOf(':') + 1)..].Trim();
+
+                if (valuePart.StartsWith("[") && valuePart.EndsWith("]"))
+                {
+                    // Inline array
+                    var inner = valuePart[1..^1];
+                    var items = inner.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    return items.Select(s => s.Trim().Trim('"')).ToList();
+                }
+                else if (string.IsNullOrEmpty(valuePart))
+                {
+                    // Start of block array
+                    values = new List<string>();
+                }
+                else
+                {
+                    // Single value treated as 1-element list
+                    return new List<string> { valuePart.Trim('"') };
+                }
+            }
+        }
+
+        // Final return logic
+        return foundKey ? values ?? new List<string>() : null;
+    }
+
+
+
+    /// <summary>
+    /// Starts new StreamReader using async FileStream with sequential scanning at given path and searches for PrivateMarker and the text after it.
+    /// </summary>
+    /// <param name="path">Path to the file.</param>
+    /// <returns>PrivateMarker and all the text after it.</returns>
     static async Task<string> ExtractPrivateSectionAsync(string path)
     {
-        var content = await File.ReadAllTextAsync(path);
-        var index = content.IndexOf(PrivateMarker);
-        return index >= 0 ? content.Substring(index) : "\n" + PrivateMarker + "\n\n";
+        // Early return if the file does not exist
+        if (!File.Exists(path))
+            return "\n" + PrivateMarker + "\n\n";
+
+        // Opening the file in async, sequential‑scan mode for best throughput
+        await using var fs = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            4096,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+        using var reader = new StreamReader(fs, Encoding.UTF8);
+
+        var sb = new StringBuilder();
+        bool foundMarker = false;
+
+        string? line;
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            if (!foundMarker)
+            {
+                // Detecting the private marker line
+                if (line.Contains(PrivateMarker, StringComparison.Ordinal))
+                {
+                    foundMarker = true;
+                    sb.AppendLine(line);   // keeping the marker itself
+                }
+                continue;                  // keep scanning until we find it
+            }
+
+            // After the marker: copy every remaining line verbatim
+            sb.AppendLine(line);
+        }
+
+        // If the marker was never found, creating a default section
+        if (!foundMarker)
+            return "\n" + PrivateMarker + "\n\n";
+
+        return sb.ToString();
     }
+
 
     /// <summary>
     /// Escapes YAML " characters.
@@ -260,14 +388,20 @@ class Program
         return name;
     }
 
+
+
     class GraphQLResponse
     {
         [JsonPropertyName("data")] public ResponseData Data { get; set; }
     }
+
+
     class ResponseData
     {
         [JsonPropertyName("userRates")] public List<UserRate> UserRates { get; set; }
     }
+
+
     class UserRate
     {
         [JsonPropertyName("anime")] public Anime Anime { get; set; }
@@ -275,16 +409,24 @@ class Program
         [JsonPropertyName("createdAt")] public string CreatedAt { get; set; }
         [JsonPropertyName("updatedAt")] public string UpdatedAt { get; set; }
     }
+
+
+    // Leave id as string or parse it into int? Docs say it appears in response as a string, but string and integer input will be recognized. Will it have non-number value in the future?
+    // But looking at final YAML, is there even specification in YAML that says that a value is string or number or not? I dont think there is.
     class Anime
     {
-        [JsonPropertyName("russian")] public string Russian { get; set; }
+        [JsonPropertyName("id")] public string Id { get; set; }
+        [JsonPropertyName("malId")] public string? MalId { get; set; }
+        [JsonPropertyName("russian")] public string? Russian { get; set; }
         [JsonPropertyName("name")] public string Name { get; set; }
-        [JsonPropertyName("alternative_name")] public string AlternativeName { get; set; }
+        [JsonPropertyName("alternative_name")] public string? AlternativeName { get; set; }
         [JsonPropertyName("url")] public string Url { get; set; }
-        [JsonPropertyName("genres")] public List<Genre> Genres { get; set; }
+        [JsonPropertyName("genres")] public List<Genre>? Genres { get; set; }
         [JsonPropertyName("episodes")] public int? Episodes { get; set; }
-        [JsonPropertyName("description")] public string Description { get; set; }
+        [JsonPropertyName("description")] public string? Description { get; set; }
     }
+
+
     class Genre
     {
         [JsonPropertyName("name")] public string Name { get; set; }
