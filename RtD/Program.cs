@@ -47,7 +47,6 @@ class Program
     static async Task Main()
     {
         // TODO: Add config.json support (or rtd_config.json).
-        // TODO: Add "" characters trimming (for easier file path pasting).
         Console.Write("Enter path to root folder: ");
         var rootPath = Console.ReadLine()?.Trim().Trim('"');
         if (string.IsNullOrWhiteSpace(rootPath))
@@ -92,7 +91,6 @@ class Program
         do
         {
             var variables = new { page, limit, userId };
-            // TODO: Should operationName have string(null) or empty string?
             var payloadObj = new { operationName = (string)null, query = GraphQLQuery, variables };
             var payload = JsonSerializer.Serialize(payloadObj);
 
@@ -182,7 +180,6 @@ class Program
 
         sb.AppendLine("tags:");
         sb.AppendLine("  - \"anime\"");
-        // sb.AppendLine("  - \"watched\""); // TODO: Is this is needed at all?
 
         sb.AppendLine("genres:");
         foreach (var g in anime.Genres)
@@ -211,7 +208,7 @@ class Program
     }
 
 
-    // TODO: Should this have check for the existance of the file or not? Currently the logic uses method that returns only existing files. Should this return null or empty string?
+    // TODO: Should this have check for the existance of the file or not? Currently the logic uses method that returns only existing files.
     /// <summary>
     /// Reads frontmatter of the file (YAML data between two "---"). Starts a StreamReader at given path parameter and searches for a value corresponding to the key.
     /// </summary>
@@ -220,7 +217,7 @@ class Program
     /// </remarks>
     /// <param name="path">Path to the file.</param>
     /// <param name="key">YAML key to be searched for.</param>
-    /// <returns>Value corresponding to the given key (or null).</returns>
+    /// <returns>Value corresponding to the given key (or string.Empty).</returns>
     static string ReadFrontmatterValue(string path, string key)
     {
         using var reader = new StreamReader(path);
@@ -242,7 +239,7 @@ class Program
                 return line[(line.IndexOf(':') + 1)..].Trim().Trim('"');
             }
         }
-        return null;
+        return string.Empty;
     }
 
 
@@ -326,7 +323,7 @@ class Program
     /// Starts new StreamReader using async FileStream with sequential scanning at given path and searches for PrivateMarker and the text after it.
     /// </summary>
     /// <param name="path">Path to the file.</param>
-    /// <returns>PrivateMarker and all the text after it.</returns>
+    /// <returns>PrivateMarker and all the text after it, or a placeholder for private section (see code for placeholder structure).</returns>
     static async Task<string> ExtractPrivateSectionAsync(string path)
     {
         // Early return if the file does not exist
@@ -413,8 +410,6 @@ class Program
     }
 
 
-    // Leave id as string or parse it into int? Docs say it appears in response as a string, but string and integer input will be recognized. Will it have non-number value in the future?
-    // But looking at final YAML, is there even specification in YAML that says that a value is string or number or not? I dont think there is.
     class Anime
     {
         [JsonPropertyName("id")] public string Id { get; set; }
