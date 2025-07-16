@@ -48,8 +48,8 @@ class Program
     {
         // TODO: Add config.json support (or rtd_config.json).
         // TODO: Add "" characters trimming (for easier file path pasting).
-        Console.Write("Enter path to Anime folder: ");
-        var rootPath = Console.ReadLine()?.Trim();
+        Console.Write("Enter path to root folder: ");
+        var rootPath = Console.ReadLine()?.Trim().Trim('"');
         if (string.IsNullOrWhiteSpace(rootPath))
         {
             Console.WriteLine("Invalid path.");
