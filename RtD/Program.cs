@@ -16,10 +16,10 @@ class Program
 
     /*
      * Private marker for your notes.
-     * After reading API output and attempting to write text into a file private marker will stop writer from overwriting your additional notes.
+     * After reading API output and attempting to write text into a file, private marker will stop writer from overwriting your additional notes.
      * This was added because of character limitation in anime list (4 064 symbols), not because of comment, review or critique character limitation.
      * 
-     * Choose your private marker carefully, there's no "Change one private marker for another" feature right now.
+     * Warning! Choose your private marker carefully, there's no "Change one private marker for another" feature right now.
      * So, if you would need to change the marker, you would have to manually transfer all of the text below private markers into newly generated files.
      * 
      * Below private marker you can write your text that you dont want to post on a website, but want to add anyway.
@@ -46,7 +46,22 @@ class Program
 
     static async Task Main()
     {
+        // TODO: Add a constructor for Program that will handle values.
         // TODO: Add config.json support (or rtd_config.json).
+        // Add a function HandleConfig(rootPath, userId).
+        // In rtd_config.json add "AutomaticAppExecution" key with true/false value
+        // If AutomaticAppExecution true, HandleConfig will take all of the data from the config and continue program execution.
+        // If AutomaticAppExecution false, HandleConfig will prompt user for all of the data, required to continue program execution.
+
+        // TODO: Add statistics
+        // 
+        // Number: processed files
+        // Number: created   files
+        // Number: updated   files
+        //
+        // Timer: API call
+        // Timer: Program execution
+
         Console.Write("Enter path to root folder: ");
         var rootPath = Console.ReadLine()?.Trim().Trim('"');
         if (string.IsNullOrWhiteSpace(rootPath))
