@@ -11,6 +11,7 @@ using System.Diagnostics;
 
 class Program
 {
+    // TODO: Add global try catch?
     private const string GraphQLEndpoint = "https://shikimori.one/api/graphql";
 
     /*
@@ -91,6 +92,7 @@ class Program
         do
         {
             var variables = new { page, limit, userId };
+            // TODO: Should operationName have string(null) or empty string?
             var payloadObj = new { operationName = (string)null, query = GraphQLQuery, variables };
             var payload = JsonSerializer.Serialize(payloadObj);
 
@@ -209,7 +211,7 @@ class Program
     }
 
 
-    // TODO: Should this have check for the existance of the file or not? Currently the logic uses method that returns only existing files.
+    // TODO: Should this have check for the existance of the file or not? Currently the logic uses method that returns only existing files. Should this return null or empty string?
     /// <summary>
     /// Reads frontmatter of the file (YAML data between two "---"). Starts a StreamReader at given path parameter and searches for a value corresponding to the key.
     /// </summary>
