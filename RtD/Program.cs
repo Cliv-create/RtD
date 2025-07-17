@@ -9,6 +9,8 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
 
+using Microsoft.Extensions.Configuration;
+
 class Program
 {
     // TODO: Add global try catch?
@@ -47,35 +49,75 @@ class Program
     static async Task Main()
     {
         // TODO: Add a constructor for Program that will handle values.
-        // TODO: Add config.json support (or rtd_config.json).
         // Add a function HandleConfig(rootPath, userId).
-        // In rtd_config.json add "AutomaticAppExecution" key with true/false value
-        // If AutomaticAppExecution true, HandleConfig will take all of the data from the config and continue program execution.
-        // If AutomaticAppExecution false, HandleConfig will prompt user for all of the data, required to continue program execution.
-
-        // TODO: Add statistics
-        // 
-        // Number: processed files
-        // Number: created   files
-        // Number: updated   files
+        // rtd_config.json "AutomaticAppExecution" key with true/false value
+        // If AutomaticAppExecution true, will take all of the data from the config and continue program execution.
+        // If AutomaticAppExecution false, will prompt user for all of the data, required to continue program execution.
         //
-        // Timer: API call
-        // Timer: Program execution
+        // rtd_config values:
+        // AutomaticAppExecution - true/false
+        // RootPath - string
+        // UserId - number
 
-        Console.Write("Enter path to root folder: ");
-        var rootPath = Console.ReadLine()?.Trim().Trim('"');
+        // Stopwatches (Timers)
+        Stopwatch api_request_time_timer = new Stopwatch();
+        Stopwatch executuion_time_timer = new Stopwatch();
+
+        //
+        // Main program
+        //
+
+        executuion_time_timer.Start();
+        
+        // TODO: Move into a default constructor, add config[] to the class values set and pull rootPath, userId and all values that could be needed from there.
+        string? rootPath = string.Empty;
+        long userId = 0;
+        bool AutoLoadingActive = false;
+
+        if (File.Exists("rtd_config.json"))
+        {
+            Console.WriteLine("Found rtd_config.json");
+            
+            var config = new ConfigurationBuilder()
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("rtd_config.json", optional: false, reloadOnChange: false)
+                .Build();
+
+            bool.TryParse(config["AutomaticAppExecution"]?.Trim(), out AutoLoadingActive);
+
+            if (AutoLoadingActive)
+            {
+                rootPath = config["RootPath"]?.Trim().Trim('"');
+                if (!long.TryParse(config["UserId"], out userId))
+                {
+                    Console.WriteLine("Invalid userId in rtd_config.json.");
+                    return;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(rootPath))
+        {
+            Console.Write("Enter path to root folder: ");
+            rootPath = Console.ReadLine()?.Trim().Trim('"');
+        }
+
         if (string.IsNullOrWhiteSpace(rootPath))
         {
             Console.WriteLine("Invalid path.");
             return;
         }
+
         Directory.CreateDirectory(rootPath);
 
-        Console.Write("Enter your Shikimori userId: ");
-        if (!long.TryParse(Console.ReadLine()?.Trim(), out var userId))
+        if (userId == 0)
         {
-            Console.WriteLine("Invalid userId (number expected).");
-            return;
+            Console.Write("Enter your Shikimori userId: ");
+            if (!long.TryParse(Console.ReadLine()?.Trim(), out userId))
+            {
+                Console.WriteLine("Invalid userId (number expected).");
+                return;
+            }
         }
 
 
@@ -95,13 +137,26 @@ class Program
                 updatedAtCache[name] = updated;
         }
 
-
-        using var http = new HttpClient();
+        // API request related values
+        //
+        // Maybe this will improve api call execution time?
+        var handler = new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+            MaxConnectionsPerServer = 10
+        };
+        using var http = new HttpClient(handler);
         http.DefaultRequestHeaders.UserAgent.ParseAdd("RtD/1.0");
 
         const int limit = 50;
         int page = 1;
         bool hasMore;
+
+        // Statistics values
+        int anime_entries_amount = 0;
+        int anime_entries_updated_amount = 0;
+        int anime_entries_created_amount = 0;
 
         do
         {
@@ -109,7 +164,10 @@ class Program
             var payloadObj = new { operationName = (string)null, query = GraphQLQuery, variables };
             var payload = JsonSerializer.Serialize(payloadObj);
 
+            api_request_time_timer.Start();
             var response = await http.PostAsync(GraphQLEndpoint, new StringContent(payload, Encoding.UTF8, "application/json"));
+            api_request_time_timer.Stop();
+
             var rawResponse = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
@@ -126,6 +184,7 @@ class Program
 
             foreach (var rate in rates)
             {
+                Interlocked.Increment(ref anime_entries_amount);
                 var anime = rate.Anime;
 
                 // Prepare paths
@@ -158,6 +217,7 @@ class Program
                     var merged = newAutoPart + existingPrivate;
                     await File.WriteAllTextAsync(filePath, merged, Encoding.UTF8);
 
+                    Interlocked.Increment(ref anime_entries_updated_amount);
                     Console.WriteLine($"Updated: {filePath}");
                 }
                 else
@@ -166,6 +226,7 @@ class Program
 
                     await File.WriteAllTextAsync(filePath, fullContent, Encoding.UTF8);
 
+                    Interlocked.Increment(ref anime_entries_created_amount);
                     Console.WriteLine($"Created: {filePath}");
                 }
             }
@@ -173,7 +234,18 @@ class Program
             page++;
         } while (hasMore);
 
-        Console.WriteLine("Finished generation.");
+        executuion_time_timer.Stop();
+
+        Console.WriteLine($"Application execution time:\n{executuion_time_timer.Elapsed}");
+        Console.WriteLine($"Pure application execution time (no network):\n{executuion_time_timer.Elapsed - api_request_time_timer.Elapsed}");
+
+        Console.WriteLine($"API call execution time: {api_request_time_timer.ElapsedMilliseconds} ms");
+
+        Console.WriteLine($"Anime entries processed: {anime_entries_amount}");
+        Console.WriteLine($"Anime entries updated:   {anime_entries_updated_amount}");
+        Console.WriteLine($"Anime entries created:   {anime_entries_created_amount}");
+
+        Console.WriteLine("Finished processing.");
     }
 
 
@@ -199,7 +271,7 @@ class Program
         sb.AppendLine("genres:");
         foreach (var g in anime.Genres)
             sb.AppendLine($"  - \"{EscapeYaml(g.Name)}\"");
-        
+
         if (anime.Episodes.HasValue)
             sb.AppendLine($"episodes: {anime.Episodes}");
 
