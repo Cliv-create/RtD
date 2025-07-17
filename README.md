@@ -65,5 +65,4 @@ Built using .NET Core 9 and compiled in Visual Studio 2022 (v17+)
 
 ### Additional info
 
-Project code was written using LLM model. Then i looked throught all of the code myself.  
-The .exe files in releases (might appear later) are a publish version with dependencies built-in, that's why the file size is so large.
+Initial project code was written using LLM model. Then i looked throught all of the code myself.
