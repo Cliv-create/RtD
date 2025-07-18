@@ -1,4 +1,4 @@
-# RtD
+# RtD :notebook:
 
 # Why?
 
