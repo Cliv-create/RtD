@@ -54,7 +54,7 @@ rtd_config.json example contents:
 - RootPath - folder that will contain generated Markdown files.
 - UserId - Your Shikimori user id.
 
-## Build info
+# Build info
 
 Built using .NET Core 9 and compiled in Visual Studio 2022 (v17+)
 
