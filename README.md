@@ -15,12 +15,13 @@ You enter Shikimori userId.
 - After that, API request is performed.
 - All of the titles in the list are added in the destination folder.
 - The file structure goes like this:
-```
+  
+
 :open_file_folder: Root folder
     :open_file_folder: "Title Name" folder
         :page_facing_up: "Title Name.md" file
-```
-
+  
+  
 :page_facing_up: Markdown file content:
 ```
 ---
