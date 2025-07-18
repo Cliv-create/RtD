@@ -17,9 +17,9 @@ You enter Shikimori userId.
 - The file structure goes like this:
   
 
-:open_file_folder: Root folder
-    :open_file_folder: "Title Name" folder
-        :page_facing_up: "Title Name.md" file
+> :open_file_folder: Root folder
+> > :open_file_folder: "Title Name" folder
+> > > :page_facing_up: "Title Name.md" file
   
   
 :page_facing_up: Markdown file content:
