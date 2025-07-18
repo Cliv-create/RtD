@@ -16,12 +16,12 @@ You enter Shikimori userId.
 - All of the titles in the list are added in the destination folder.
 - The file structure goes like this:
 ```
-Root folder
-    "Title Name" folder
-        "Title Name.md" file
+:open_file_folder: Root folder
+    :open_file_folder: "Title Name" folder
+        :page_facing_up: "Title Name.md" file
 ```
 
-Markdown file content:
+:page_facing_up: Markdown file content:
 ```
 ---
 YAML section
@@ -35,7 +35,7 @@ your comments (from PrivateMarker to the end of the file)
 ```
 Private marker exists so when you re-fetch the list your comments dont get removed.
 
-### rtd_config.json
+### :page_with_curl: rtd_config.json
 
 You can add optional configuration file, so you wouldn't have to input any information to get program working.  
 rtd_config.json should be placed in the same folder as the RtD.exe  
