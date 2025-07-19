@@ -59,6 +59,9 @@ class Program
         // RootPath - string
         // UserId - number
 
+        // TODO: Add an option for files indentation. Whether or not to nest .md files into their own folder?
+        // TODO: Add clarification messages for network requests?
+
         // Stopwatches (Timers)
         Stopwatch api_request_time_timer = new Stopwatch();
         Stopwatch executuion_time_timer = new Stopwatch();

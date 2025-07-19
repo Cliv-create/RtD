@@ -66,4 +66,4 @@ Built using .NET Core 9 and compiled in Visual Studio 2022 (v17+)
 
 ### Additional info
 
-Initial project code was written using LLM model. Then i looked throught all of the code myself.
+File operations and done in batches of 50 (see limit value). This is because a new API call is performed and current "batch size" is 50 titles at a time.
