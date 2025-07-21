@@ -164,12 +164,19 @@ class Program
 
         do
         {
-            var payload = JsonSerializer.Serialize(new
+            var variables = new { page, limit, userId };
+
+            var payloadObj = new { operationName = (string?)null, query = GraphQLQuery, variables };
+
+            var options = new JsonSerializerOptions
             {
-                operationName = (string)null,
-                query = GraphQLQuery,
-                variables = new { page, limit, userId }
-            });
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            };
+
+            var payload = JsonSerializer.Serialize(payloadObj, options);
+
+            // Console.WriteLine(payload);
 
             api_request_time_timer.Start();
             var response = await http.PostAsync(GraphQLEndpoint, new StringContent(payload, Encoding.UTF8, "application/json"));
@@ -184,7 +191,7 @@ class Program
                 return;
             }
 
-            var data = JsonSerializer.Deserialize<GraphQLResponse>(rawResponse);
+            var data = JsonSerializer.Deserialize<GraphQLResponse>(rawResponse, AppJsonContext.Default.GraphQLResponse);
 
             var rates = data?.Data?.UserRates ?? new List<UserRate>();
             hasMore = rates.Count == limit;
