@@ -11,22 +11,14 @@ using System.Diagnostics;
 
 using Microsoft.Extensions.Configuration;
 
+using RtD.Services;
+using RtD.Models;
+using RtD.Utils;
+
 class Program
 {
     // TODO: Add global try catch?
     private const string GraphQLEndpoint = "https://shikimori.one/api/graphql";
-
-    /*
-     * Private marker for your notes.
-     * After reading API output and attempting to write text into a file, private marker will stop writer from overwriting your additional notes.
-     * This was added because of character limitation in anime list (4 064 symbols), not because of comment, review or critique character limitation.
-     * 
-     * Warning! Choose your private marker carefully, there's no "Change one private marker for another" feature right now.
-     * So, if you would need to change the marker, you would have to manually transfer all of the text below private markers into newly generated files.
-     * 
-     * Below private marker you can write your text that you dont want to post on a website, but want to add anyway.
-     */
-    private const string PrivateMarker = "<!-- PRIVATE -->";
 
     private const string GraphQLQuery = @"
     query($page: PositiveInt!, $limit: PositiveInt!, $userId: ID!) {
@@ -44,6 +36,18 @@ class Program
       }
     }
     ";
+
+    /*
+     * Private marker for your notes.
+     * After reading API output and attempting to write text into a file, private marker will stop writer from overwriting your additional notes.
+     * This was added because of character limitation in anime list (4 064 symbols), not because of comment, review or critique character limitation.
+     * 
+     * Warning! Choose your private marker carefully, there's no "Change one private marker for another" feature right now.
+     * So, if you would need to change the marker, you would have to manually transfer all of the text below private markers into newly generated files.
+     * 
+     * Below private marker you can write your text that you dont want to post on a website, but want to add anyway.
+     */
+    private const string PrivateMarker = "<!-- PRIVATE -->";
 
 
     static async Task Main()
@@ -65,13 +69,15 @@ class Program
         // Stopwatches (Timers)
         Stopwatch api_request_time_timer = new Stopwatch();
         Stopwatch executuion_time_timer = new Stopwatch();
+        Stopwatch database_initialization_timer = new Stopwatch();
+        Stopwatch database_executuion_time_timer = new Stopwatch();
 
         //
         // Main program
         //
 
         executuion_time_timer.Start();
-        
+
         // TODO: Move into a default constructor, add config[] to the class values set and pull rootPath, userId and all values that could be needed from there.
         string? rootPath = string.Empty;
         long userId = 0;
@@ -80,7 +86,7 @@ class Program
         if (File.Exists("rtd_config.json"))
         {
             Console.WriteLine("Found rtd_config.json");
-            
+
             var config = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
                 .AddJsonFile("rtd_config.json", optional: false, reloadOnChange: false)
@@ -111,7 +117,7 @@ class Program
             return;
         }
 
-        Directory.CreateDirectory(rootPath);
+        if (!Directory.Exists(rootPath)) Directory.CreateDirectory(rootPath);
 
         if (userId == 0)
         {
@@ -123,22 +129,16 @@ class Program
             }
         }
 
+        // TODO: Review updatedAtCache handling. For large lists issues with memory comsumption can appear.
+        var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
 
-        // Preload all existing updatedAt values into a dictionary, excluding .obsidian and similar folders
-        var updatedAtCache = new Dictionary<string, string>();
+        database_initialization_timer.Start();
+        var cache = new AnimeCacheRepository(dbPath);
+        database_initialization_timer.Stop();
 
-        foreach (var file in Directory.EnumerateFiles(rootPath, "*.md", SearchOption.AllDirectories))
-        {
-            // Skip if the file is in any hidden/system-like directory such as .obsidian; .git, etc
-            var relativePath = Path.GetRelativePath(rootPath, file);
-            if (relativePath.Split(Path.DirectorySeparatorChar).Any(part => part.StartsWith(".")))
-                continue;
-
-            var name = Path.GetFileNameWithoutExtension(file);
-            var updated = ReadFrontmatterValue(file, "updatedAt");
-            if (updated != null)
-                updatedAtCache[name] = updated;
-        }
+        database_executuion_time_timer.Start();
+        var updatedAtCache = cache.LoadAllUpdatedAt();
+        database_executuion_time_timer.Stop();
 
         // API request related values
         //
@@ -154,7 +154,7 @@ class Program
 
         const int limit = 50;
         int page = 1;
-        bool hasMore;
+        bool hasMore = true;
 
         // Statistics values
         int anime_entries_amount = 0;
@@ -163,9 +163,12 @@ class Program
 
         do
         {
-            var variables = new { page, limit, userId };
-            var payloadObj = new { operationName = (string)null, query = GraphQLQuery, variables };
-            var payload = JsonSerializer.Serialize(payloadObj);
+            var payload = JsonSerializer.Serialize(new
+            {
+                operationName = (string)null,
+                query = GraphQLQuery,
+                variables = new { page, limit, userId }
+            });
 
             api_request_time_timer.Start();
             var response = await http.PostAsync(GraphQLEndpoint, new StringContent(payload, Encoding.UTF8, "application/json"));
@@ -188,24 +191,29 @@ class Program
             foreach (var rate in rates)
             {
                 Interlocked.Increment(ref anime_entries_amount);
+
                 var anime = rate.Anime;
+                if (!long.TryParse(anime.Id, out long animeId)) continue;
 
                 // Prepare paths
-                var folderName = SanitizeFileName(anime.Russian ?? anime.Name);
+                var folderName = Helpers.SanitizeFileName(anime.Russian ?? anime.Name);
                 var dir = Path.Combine(rootPath, folderName);
-                Directory.CreateDirectory(dir);
 
                 var filePath = Path.Combine(dir, folderName + ".md");
 
                 // Check if update is needed
-                if (updatedAtCache.TryGetValue(folderName, out var existingUpdated) && existingUpdated == rate.UpdatedAt)
+                updatedAtCache.TryGetValue(animeId, out string? cached);
+                if (cached == rate.UpdatedAt)
                 {
                     Console.WriteLine($"No changes: {filePath}");
-                    continue;
+                    hasMore = false;
+                    break;
                 }
 
+                Directory.CreateDirectory(dir);
+
                 // Generate new YAML frontmatter
-                var newAutoPart = BuildYamlAnimeFrontmatter(
+                var newYaml = BuildYamlAnimeFrontmatter(
                     anime,
                     rate.Text,
                     rate.CreatedAt,
@@ -217,7 +225,7 @@ class Program
                 {
                     var existingPrivate = await ExtractPrivateSectionAsync(filePath);
 
-                    var merged = newAutoPart + existingPrivate;
+                    var merged = newYaml + existingPrivate;
                     await File.WriteAllTextAsync(filePath, merged, Encoding.UTF8);
 
                     Interlocked.Increment(ref anime_entries_updated_amount);
@@ -225,13 +233,15 @@ class Program
                 }
                 else
                 {
-                    var fullContent = newAutoPart + $"\n{PrivateMarker}\n\n";
+                    var fullContent = newYaml + $"\n{PrivateMarker}\n\n";
 
                     await File.WriteAllTextAsync(filePath, fullContent, Encoding.UTF8);
 
                     Interlocked.Increment(ref anime_entries_created_amount);
                     Console.WriteLine($"Created: {filePath}");
                 }
+
+                cache.UpsertAnime(animeId, rate.UpdatedAt, folderName);
             }
 
             page++;
@@ -241,6 +251,9 @@ class Program
 
         Console.WriteLine($"Application execution time:\n{executuion_time_timer.Elapsed}");
         Console.WriteLine($"Pure application execution time (no network):\n{executuion_time_timer.Elapsed - api_request_time_timer.Elapsed}");
+
+        Console.WriteLine($"Database initialization timer: {database_initialization_timer.ElapsedMilliseconds} ms");
+        Console.WriteLine($"Database execution timer: {database_executuion_time_timer.ElapsedMilliseconds} ms");
 
         Console.WriteLine($"API call execution time: {api_request_time_timer.ElapsedMilliseconds} ms");
 
@@ -260,20 +273,20 @@ class Program
 
         sb.AppendLine($"id: {anime.Id}");
 
-        sb.AppendLine($"malId: {anime.MalId?.ToString() ?? "null"}");
+        sb.AppendLine($"malId: {anime.MalId ?? "null"}");
 
         sb.AppendLine($"updatedAt: \"{updatedAt}\"");
 
         sb.AppendLine($"createdAt: \"{createdAt}\"");
 
-        sb.AppendLine($"url: \"{EscapeYaml(anime.Url)}\"");
+        sb.AppendLine($"url: \"{Helpers.EscapeYaml(anime.Url)}\"");
 
         sb.AppendLine("tags:");
         sb.AppendLine("  - \"anime\"");
 
         sb.AppendLine("genres:");
         foreach (var g in anime.Genres)
-            sb.AppendLine($"  - \"{EscapeYaml(g.Name)}\"");
+            sb.AppendLine($"  - \"{Helpers.EscapeYaml(g.Name)}\"");
 
         if (anime.Episodes.HasValue)
             sb.AppendLine($"episodes: {anime.Episodes}");
@@ -297,7 +310,8 @@ class Program
         return sb.ToString();
     }
 
-
+    // NOTE: ReadFrontmatterValue and ReadFrontmatterArrayValues are currently not used (DB cache is used instead)
+    // However, these methods will remain here temporarily.
     // TODO: Should this have check for the existance of the file or not? Currently the logic uses method that returns only existing files.
     /// <summary>
     /// Reads frontmatter of the file (YAML data between two "---"). Starts a StreamReader at given path parameter and searches for a value corresponding to the key.
@@ -457,65 +471,5 @@ class Program
             return "\n" + PrivateMarker + "\n\n";
 
         return sb.ToString();
-    }
-
-
-    /// <summary>
-    /// Escapes YAML " characters.
-    /// </summary>
-    /// <param name="value">String that will be checked for un-escaped " characters.</param>
-    /// <returns>String with " characters escaped.</returns>
-    static string EscapeYaml(string? value)
-    {
-        return value?.Replace("\"", "\\\"") ?? string.Empty;
-    }
-
-    static string SanitizeFileName(string name)
-    {
-        foreach (var c in Path.GetInvalidFileNameChars())
-            name = name.Replace(c, '_');
-        return name;
-    }
-
-
-
-    class GraphQLResponse
-    {
-        [JsonPropertyName("data")] public ResponseData Data { get; set; }
-    }
-
-
-    class ResponseData
-    {
-        [JsonPropertyName("userRates")] public List<UserRate> UserRates { get; set; }
-    }
-
-
-    class UserRate
-    {
-        [JsonPropertyName("anime")] public Anime Anime { get; set; }
-        [JsonPropertyName("text")] public string Text { get; set; }
-        [JsonPropertyName("createdAt")] public string CreatedAt { get; set; }
-        [JsonPropertyName("updatedAt")] public string UpdatedAt { get; set; }
-    }
-
-
-    class Anime
-    {
-        [JsonPropertyName("id")] public string Id { get; set; }
-        [JsonPropertyName("malId")] public string? MalId { get; set; }
-        [JsonPropertyName("russian")] public string? Russian { get; set; }
-        [JsonPropertyName("name")] public string Name { get; set; }
-        [JsonPropertyName("alternative_name")] public string? AlternativeName { get; set; }
-        [JsonPropertyName("url")] public string Url { get; set; }
-        [JsonPropertyName("genres")] public List<Genre>? Genres { get; set; }
-        [JsonPropertyName("episodes")] public int? Episodes { get; set; }
-        [JsonPropertyName("description")] public string? Description { get; set; }
-    }
-
-
-    class Genre
-    {
-        [JsonPropertyName("name")] public string Name { get; set; }
     }
 }
