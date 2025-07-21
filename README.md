@@ -12,7 +12,7 @@ Just launch the .exe once in a while to fetch the information about the titles. 
 - .exe uses rtd_config.json file for all of the configuration, or  
 You enter target folder, where all of the .md files will be put at.  
 You enter Shikimori userId.  
-- After that, API request is performed.
+- After that, DB is loaded and API request(s) performed.
 - All of the titles in the list are added in the destination folder.
 - The file structure goes like this:
   
@@ -54,6 +54,13 @@ rtd_config.json example contents:
 - RootPath - folder that will contain generated Markdown files.
 - UserId - Your Shikimori user id.
 
+### :floppy_disk: anime_cache.db
+  
+Now, `anime_cache.db` file is created upon programs launch (if none was present).  
+This file will contain cached values for `anime_id`, `updatedAt` and `folder_name`.  
+> [!CAUTION]
+> `anime_cache.db` is very important! Make sure you don't lose it!
+  
 # Build info
 
 Built using .NET Core 9 and compiled in Visual Studio 2022 (v17+)
@@ -66,4 +73,7 @@ Built using .NET Core 9 and compiled in Visual Studio 2022 (v17+)
 
 ### Additional info
 
-File operations and done in batches of 50 (see limit value). This is because a new API call is performed and current "batch size" is 50 titles at a time.
+File operations and API calls are done in batches of 50 (see limit value). This is because a new API call is performed and current API "batch size limit" is 50 titles at a time.  
+Note, above is applied when re-fetching your entire anime list, or when you didn't launch program for a while, so there's more then 50 changes to your anime list. Also, it's applied when there's no `anime_cache.db` present near `RtD.exe`.  
+  
+Upon transferring files, it is recommended that with `RtD.exe` you also move `rtd_config.json` and, more importantly, `anime_cache.db`. As without these files you will not only be prompted for `folder path` and `Shikimori user id`, but you will also need to re-fetch all of your anime list again throught API calls.

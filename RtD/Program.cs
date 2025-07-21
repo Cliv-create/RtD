@@ -129,6 +129,7 @@ class Program
             }
         }
 
+        // TODO: Add rtd_config.json value for customizing anime_cache.db location path.
         // TODO: Review updatedAtCache handling. For large lists issues with memory comsumption can appear.
         var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
 
