@@ -32,7 +32,6 @@ class Program
         score
         status
         rewatches
-        volumes
       }
     }
     ";
