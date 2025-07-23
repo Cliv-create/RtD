@@ -50,226 +50,240 @@ class Program
     private const string PrivateMarker = "<!-- PRIVATE -->";
 
 
-    static async Task Main()
+    static async Task<int> Main()
     {
-        // TODO: Add a constructor for Program that will handle values.
-        // Add a function HandleConfig(rootPath, userId).
-        // rtd_config.json "AutomaticAppExecution" key with true/false value
-        // If AutomaticAppExecution true, will take all of the data from the config and continue program execution.
-        // If AutomaticAppExecution false, will prompt user for all of the data, required to continue program execution.
-        //
-        // rtd_config values:
-        // AutomaticAppExecution - true/false
-        // RootPath - string
-        // UserId - number
-
-        // TODO: Add an option for files indentation. Whether or not to nest .md files into their own folder?
-        // TODO: Add clarification messages for network requests?
-
-        // Stopwatches (Timers)
-        Stopwatch api_request_time_timer = new Stopwatch();
-        Stopwatch executuion_time_timer = new Stopwatch();
-        Stopwatch database_initialization_timer = new Stopwatch();
-        Stopwatch database_executuion_time_timer = new Stopwatch();
-
-        //
-        // Main program
-        //
-
-        executuion_time_timer.Start();
-
-        // TODO: Move into a default constructor, add config[] to the class values set and pull rootPath, userId and all values that could be needed from there.
-        string? rootPath = string.Empty;
-        long userId = 0;
-        bool AutoLoadingActive = false;
-
-        if (File.Exists("rtd_config.json"))
+        try
         {
-            Console.WriteLine("Found rtd_config.json");
+            // TODO: Add a constructor for Program that will handle values.
+            // Add a function HandleConfig(rootPath, userId).
+            // rtd_config.json "AutomaticAppExecution" key with true/false value
+            // If AutomaticAppExecution true, will take all of the data from the config and continue program execution.
+            // If AutomaticAppExecution false, will prompt user for all of the data, required to continue program execution.
+            //
+            // rtd_config values:
+            // AutomaticAppExecution - true/false
+            // RootPath - string
+            // UserId - number
 
-            var config = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("rtd_config.json", optional: false, reloadOnChange: false)
-                .Build();
+            // TODO: Add an option for files indentation. Whether or not to nest .md files into their own folder?
+            // TODO: Add clarification messages for network requests?
 
-            bool.TryParse(config["AutomaticAppExecution"]?.Trim(), out AutoLoadingActive);
+            // Stopwatches (Timers)
+            Stopwatch api_request_time_timer = new Stopwatch();
+            Stopwatch executuion_time_timer = new Stopwatch();
+            Stopwatch database_initialization_timer = new Stopwatch();
+            Stopwatch database_executuion_time_timer = new Stopwatch();
 
-            if (AutoLoadingActive)
+            //
+            // Main program
+            //
+
+            executuion_time_timer.Start();
+
+            // TODO: Move into a default constructor, add config[] to the class values set and pull rootPath, userId and all values that could be needed from there.
+            string? rootPath = string.Empty;
+            long userId = 0;
+            bool AutoLoadingActive = false;
+
+            if (File.Exists("rtd_config.json"))
             {
-                rootPath = config["RootPath"]?.Trim().Trim('"');
-                if (!long.TryParse(config["UserId"], out userId))
+                Console.WriteLine("Found rtd_config.json");
+
+                var config = new ConfigurationBuilder()
+                    .SetBasePath(AppContext.BaseDirectory)
+                    .AddJsonFile("rtd_config.json", optional: false, reloadOnChange: false)
+                    .Build();
+
+                bool.TryParse(config["AutomaticAppExecution"]?.Trim(), out AutoLoadingActive);
+
+                if (AutoLoadingActive)
                 {
-                    Console.WriteLine("Invalid userId in rtd_config.json.");
-                    return;
+                    rootPath = config["RootPath"]?.Trim().Trim('"');
+                    if (!long.TryParse(config["UserId"], out userId))
+                    {
+                        Console.WriteLine("Invalid userId in rtd_config.json.");
+                        return 1;
+                    }
                 }
             }
-        }
 
-        if (string.IsNullOrWhiteSpace(rootPath))
-        {
-            Console.Write("Enter path to root folder: ");
-            rootPath = Console.ReadLine()?.Trim().Trim('"');
-        }
-
-        if (string.IsNullOrWhiteSpace(rootPath))
-        {
-            Console.WriteLine("Invalid path.");
-            return;
-        }
-
-        if (!Directory.Exists(rootPath)) Directory.CreateDirectory(rootPath);
-
-        if (userId == 0)
-        {
-            Console.Write("Enter your Shikimori userId: ");
-            if (!long.TryParse(Console.ReadLine()?.Trim(), out userId))
+            if (string.IsNullOrWhiteSpace(rootPath))
             {
-                Console.WriteLine("Invalid userId (number expected).");
-                return;
+                Console.Write("Enter path to root folder: ");
+                rootPath = Console.ReadLine()?.Trim().Trim('"');
             }
-        }
 
-        // TODO: Add rtd_config.json value for customizing anime_cache.db location path.
-        // TODO: Review updatedAtCache handling. For large lists issues with memory comsumption can appear.
-        var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
-
-        database_initialization_timer.Start();
-        var cache = new AnimeCacheRepository(dbPath);
-        database_initialization_timer.Stop();
-
-        database_executuion_time_timer.Start();
-        var updatedAtCache = cache.LoadAllUpdatedAt();
-        database_executuion_time_timer.Stop();
-
-        // API request related values
-        //
-        // Maybe this will improve api call execution time?
-        var handler = new SocketsHttpHandler
-        {
-            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-            MaxConnectionsPerServer = 10
-        };
-        using var http = new HttpClient(handler);
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("RtD/1.0");
-
-        const int limit = 50;
-        int page = 1;
-        bool hasMore = true;
-
-        // Statistics values
-        int anime_entries_amount = 0;
-        int anime_entries_updated_amount = 0;
-        int anime_entries_created_amount = 0;
-
-        do
-        {
-            var variables = new { page, limit, userId };
-
-            var payloadObj = new { operationName = (string?)null, query = GraphQLQuery, variables };
-
-            var options = new JsonSerializerOptions
+            if (string.IsNullOrWhiteSpace(rootPath))
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                Console.WriteLine("Invalid path.");
+                return 1;
+            }
+
+            if (!Directory.Exists(rootPath)) Directory.CreateDirectory(rootPath);
+
+            if (userId == 0)
+            {
+                Console.Write("Enter your Shikimori userId: ");
+                if (!long.TryParse(Console.ReadLine()?.Trim(), out userId))
+                {
+                    Console.WriteLine("Invalid userId (number expected).");
+                    return 1;
+                }
+            }
+
+            // TODO: Add rtd_config.json value for customizing anime_cache.db location path.
+            // TODO: Review updatedAtCache handling. For large lists issues with memory comsumption can appear.
+            var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
+
+            database_initialization_timer.Start();
+            var cache = new AnimeCacheRepository(dbPath);
+            database_initialization_timer.Stop();
+
+            database_executuion_time_timer.Start();
+            var updatedAtCache = cache.LoadAllUpdatedAt();
+            database_executuion_time_timer.Stop();
+
+            // API request related values
+            //
+            // Maybe this will improve api call execution time?
+            var handler = new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+                MaxConnectionsPerServer = 10
             };
+            using var http = new HttpClient(handler);
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("RtD/1.0");
 
-            var payload = JsonSerializer.Serialize(payloadObj, options);
+            const int limit = 50;
+            int page = 1;
+            bool hasMore = true;
 
-            // Console.WriteLine(payload);
+            // Statistics values
+            int anime_entries_amount = 0;
+            int anime_entries_updated_amount = 0;
+            int anime_entries_created_amount = 0;
 
-            api_request_time_timer.Start();
-            var response = await http.PostAsync(GraphQLEndpoint, new StringContent(payload, Encoding.UTF8, "application/json"));
-            api_request_time_timer.Stop();
-
-            var rawResponse = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
+            do
             {
-                Console.WriteLine($"GraphQL Error: {(int)response.StatusCode} {response.ReasonPhrase}");
-                Console.WriteLine(rawResponse);
-                return;
-            }
+                var variables = new { page, limit, userId };
 
-            var data = JsonSerializer.Deserialize<GraphQLResponse>(rawResponse, AppJsonContext.Default.GraphQLResponse);
+                var payloadObj = new { operationName = (string?)null, query = GraphQLQuery, variables };
 
-            var rates = data?.Data?.UserRates ?? new List<UserRate>();
-            hasMore = rates.Count == limit;
-
-            foreach (var rate in rates)
-            {
-                Interlocked.Increment(ref anime_entries_amount);
-
-                var anime = rate.Anime;
-                if (!long.TryParse(anime.Id, out long animeId)) continue;
-
-                // Prepare paths
-                var folderName = Helpers.SanitizeFileName(anime.Russian ?? anime.Name);
-                var dir = Path.Combine(rootPath, folderName);
-
-                var filePath = Path.Combine(dir, folderName + ".md");
-
-                // Check if update is needed
-                updatedAtCache.TryGetValue(animeId, out string? cached);
-                if (cached == rate.UpdatedAt)
+                var options = new JsonSerializerOptions
                 {
-                    Console.WriteLine($"No changes: {filePath}");
-                    hasMore = false;
-                    break;
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                };
+
+                var payload = JsonSerializer.Serialize(payloadObj, options);
+
+                // Console.WriteLine(payload);
+
+                api_request_time_timer.Start();
+                var response = await http.PostAsync(GraphQLEndpoint, new StringContent(payload, Encoding.UTF8, "application/json"));
+                api_request_time_timer.Stop();
+
+                var rawResponse = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.Error.WriteLine($"GraphQL Error: {(int)response.StatusCode} {response.ReasonPhrase}");
+                    Console.Error.WriteLine(rawResponse);
+
+                    return 1;
                 }
 
-                Directory.CreateDirectory(dir);
+                var data = JsonSerializer.Deserialize<GraphQLResponse>(rawResponse, AppJsonContext.Default.GraphQLResponse);
 
-                // Generate new YAML frontmatter
-                var newYaml = BuildYamlAnimeFrontmatter(
-                    anime,
-                    rate.Text,
-                    rate.CreatedAt,
-                    rate.UpdatedAt
-                );
+                var rates = data?.Data?.UserRates ?? new List<UserRate>();
+                hasMore = rates.Count == limit;
 
-                // Write file
-                if (File.Exists(filePath))
+                foreach (var rate in rates)
                 {
-                    var existingPrivate = await ExtractPrivateSectionAsync(filePath);
+                    Interlocked.Increment(ref anime_entries_amount);
 
-                    var merged = newYaml + existingPrivate;
-                    await File.WriteAllTextAsync(filePath, merged, Encoding.UTF8);
+                    var anime = rate.Anime;
+                    if (!long.TryParse(anime.Id, out long animeId)) continue;
 
-                    Interlocked.Increment(ref anime_entries_updated_amount);
-                    Console.WriteLine($"Updated: {filePath}");
+                    // Prepare paths
+                    var folderName = Helpers.SanitizeFileName(anime.Russian ?? anime.Name);
+                    var dir = Path.Combine(rootPath, folderName);
+
+                    var filePath = Path.Combine(dir, folderName + ".md");
+
+                    // Check if update is needed
+                    updatedAtCache.TryGetValue(animeId, out string? cached);
+                    if (cached == rate.UpdatedAt)
+                    {
+                        Console.WriteLine($"No changes: {filePath}");
+                        hasMore = false;
+                        break;
+                    }
+
+                    Directory.CreateDirectory(dir);
+
+                    // Generate new YAML frontmatter
+                    var newYaml = BuildYamlAnimeFrontmatter(
+                        anime,
+                        rate.Text,
+                        rate.CreatedAt,
+                        rate.UpdatedAt
+                    );
+
+                    // Write file
+                    if (File.Exists(filePath))
+                    {
+                        var existingPrivate = await ExtractPrivateSectionAsync(filePath);
+
+                        var merged = newYaml + existingPrivate;
+                        await File.WriteAllTextAsync(filePath, merged, Encoding.UTF8);
+
+                        Interlocked.Increment(ref anime_entries_updated_amount);
+                        Console.WriteLine($"Updated: {filePath}");
+                    }
+                    else
+                    {
+                        var fullContent = newYaml + $"\n{PrivateMarker}\n\n";
+
+                        await File.WriteAllTextAsync(filePath, fullContent, Encoding.UTF8);
+
+                        Interlocked.Increment(ref anime_entries_created_amount);
+                        Console.WriteLine($"Created: {filePath}");
+                    }
+
+                    cache.UpsertAnime(animeId, rate.UpdatedAt, folderName);
                 }
-                else
-                {
-                    var fullContent = newYaml + $"\n{PrivateMarker}\n\n";
 
-                    await File.WriteAllTextAsync(filePath, fullContent, Encoding.UTF8);
+                page++;
+            } while (hasMore);
 
-                    Interlocked.Increment(ref anime_entries_created_amount);
-                    Console.WriteLine($"Created: {filePath}");
-                }
+            executuion_time_timer.Stop();
 
-                cache.UpsertAnime(animeId, rate.UpdatedAt, folderName);
-            }
+            Console.WriteLine($"Application execution time:\n{executuion_time_timer.Elapsed}");
+            Console.WriteLine($"Pure application execution time (no network):\n{executuion_time_timer.Elapsed - api_request_time_timer.Elapsed}");
 
-            page++;
-        } while (hasMore);
+            Console.WriteLine($"Database initialization timer: {database_initialization_timer.ElapsedMilliseconds} ms");
+            Console.WriteLine($"Database execution timer: {database_executuion_time_timer.ElapsedMilliseconds} ms");
 
-        executuion_time_timer.Stop();
+            Console.WriteLine($"API call execution time: {api_request_time_timer.ElapsedMilliseconds} ms");
 
-        Console.WriteLine($"Application execution time:\n{executuion_time_timer.Elapsed}");
-        Console.WriteLine($"Pure application execution time (no network):\n{executuion_time_timer.Elapsed - api_request_time_timer.Elapsed}");
+            Console.WriteLine($"Anime entries processed: {anime_entries_amount}");
+            Console.WriteLine($"Anime entries updated:   {anime_entries_updated_amount}");
+            Console.WriteLine($"Anime entries created:   {anime_entries_created_amount}");
 
-        Console.WriteLine($"Database initialization timer: {database_initialization_timer.ElapsedMilliseconds} ms");
-        Console.WriteLine($"Database execution timer: {database_executuion_time_timer.ElapsedMilliseconds} ms");
+            Console.WriteLine("Finished processing.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("Fatal error: " + ex.Message);
 
-        Console.WriteLine($"API call execution time: {api_request_time_timer.ElapsedMilliseconds} ms");
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
 
-        Console.WriteLine($"Anime entries processed: {anime_entries_amount}");
-        Console.WriteLine($"Anime entries updated:   {anime_entries_updated_amount}");
-        Console.WriteLine($"Anime entries created:   {anime_entries_created_amount}");
-
-        Console.WriteLine("Finished processing.");
+            return 1;
+        }
     }
 
 
