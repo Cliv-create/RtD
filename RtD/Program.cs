@@ -26,7 +26,6 @@ class Program
         id
         anime { id malId russian name url genres { name } episodes description }
         text
-        chapters
         createdAt
         updatedAt
         score
