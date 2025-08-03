@@ -54,9 +54,6 @@ class Program
         {
             // TODO: Add a constructor for Program that will handle values.
             // Add a function HandleConfig(rootPath, userId).
-            // rtd_config.json "AutomaticAppExecution" key with true/false value
-            // If AutomaticAppExecution true, will take all of the data from the config and continue program execution.
-            // If AutomaticAppExecution false, will prompt user for all of the data, required to continue program execution.
             //
             // rtd_config values:
             // AutomaticAppExecution - true/false

@@ -5,6 +5,7 @@
 
 # Secret
 rtd_config.json
+anime_cache.db
 
 # User-specific files
 *.rsuser
