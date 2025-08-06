@@ -133,14 +133,14 @@ class Program
             do
             {
                 var api_service = new HttpApiService(api_request_time_timer);
-                var shikimori_api_service = new ShikimoriApiService(api_service);
+                var shikimori_api_service = new ShikimoriAnimeApiService(api_service);
 
                 // TODO: Ensure the timings works correctly
                 var rawResponse = await shikimori_api_service.FetchRates(userId, page, limit);
 
-                var data = JsonSerializer.Deserialize<GraphQLResponse>(rawResponse, AppJsonContext.Default.GraphQLResponse);
+                var data = JsonSerializer.Deserialize<GraphQLResponse<AnimeResponseData>>(rawResponse, AppJsonContext.Default.GraphQLResponseAnimeResponseData);
 
-                var rates = data?.Data?.UserRates ?? new List<UserRate>();
+                var rates = data?.Data?.UserRates ?? new List<AnimeUserRate>();
                 hasMore = rates.Count == limit;
 
                 foreach (var rate in rates)
@@ -271,6 +271,54 @@ class Program
         {
             sb.AppendLine("description: |");
             foreach (var line in anime.Description.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                sb.AppendLine($"  {line}");
+        }
+
+        sb.AppendLine("---");
+
+        sb.AppendLine();
+        sb.AppendLine("# Review");
+        sb.AppendLine();
+
+        sb.AppendLine(!string.IsNullOrWhiteSpace(reviewText) ? reviewText.Trim() : "*Your review...*");
+        sb.AppendLine();
+
+        return sb.ToString();
+    }
+
+    static string BuildYamlMangaFrontmatter(Manga manga, string reviewText, string createdAt, string updatedAt)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("---");
+
+        sb.AppendLine($"id: {manga.Id}");
+
+        sb.AppendLine($"malId: {manga.MalId ?? "null"}");
+
+        sb.AppendLine($"updatedAt: \"{updatedAt}\"");
+
+        sb.AppendLine($"createdAt: \"{createdAt}\"");
+
+        sb.AppendLine($"url: \"{Helpers.EscapeYaml(manga.Url)}\"");
+
+        sb.AppendLine("tags:");
+        sb.AppendLine($"  - \"{manga.Kind}\"");
+
+        sb.AppendLine("genres:");
+        foreach (var g in manga.Genres)
+            sb.AppendLine($"  - \"{Helpers.EscapeYaml(g.Name)}\"");
+
+        if (manga.Volumes.HasValue)
+            sb.AppendLine($"volumes: {manga.Volumes}");
+
+        if (manga.Chapters.HasValue)
+            sb.AppendLine($"chapters: {manga.Chapters}");
+
+        if (!string.IsNullOrWhiteSpace(manga.Description))
+        {
+            sb.AppendLine("description: |");
+            foreach (var line in manga.Description.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                 sb.AppendLine($"  {line}");
         }
 
