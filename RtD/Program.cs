@@ -110,9 +110,10 @@ class Program
 
             // TODO: Add rtd_config.json value for customizing anime_cache.db location path.
             var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
+            Console.WriteLine($"Found DB: {dbPath}");
 
             database_initialization_timer.Start();
-            IAnimeCacheRepository cache = new AnimeCacheRepository(dbPath);
+            ICacheRepository cache = new AnimeCacheRepository(dbPath);
             database_initialization_timer.Stop();
 
             // TODO: Add timers to DB access.
@@ -225,6 +226,7 @@ class Program
         {
             Console.Error.WriteLine("GraphQL Error: Request failed.");
             Console.Error.WriteLine(httpEx.Message);
+
             return 1;
         }
         catch (Exception ex)

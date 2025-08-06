@@ -6,21 +6,21 @@ using System.IO;
 
 namespace RtD.Services
 {
-    public interface IAnimeCacheRepository
+    public interface ICacheRepository
     {
         /// <summary>
-        /// Returns UpdatedAt string value for given animeId
+        /// Returns UpdatedAt string value for given titleId
         /// </summary>
-        /// <param name="animeId">animeId from anime id on Shikimori (see DB implementation).</param>
+        /// <param name="titleId">Title ID from ID on Shikimori (see DB implementation).</param>
         /// <returns>updated_at string in ISO8601 DateTime format.</returns>
-        string? GetUpdatedAt(long animeId);
+        string? GetUpdatedAt(long titleId);
         /// <summary>
         /// Adds passed variables to the pending inserts List that will be batch inserted into DB.
         /// </summary>
-        /// <param name="animeId">Anime ID on Shikimori.</param>
+        /// <param name="titleId">titleId on Shikimori.</param>
         /// <param name="updatedAt">ISO8601 DateTime format string.</param>
         /// <param name="folderName">Folder, where the .md file created from the titles list will be put.</param>
-        void QueueUpsert(long animeId, string updatedAt, string folderName);
+        void QueueUpsert(long titleId, string updatedAt, string folderName);
         /// <summary>
         /// Starts SQL transaction that will insert all of the values from pending inserts List to the DB.
         /// </summary>
@@ -28,13 +28,13 @@ namespace RtD.Services
         /// <summary>
         /// Inserts values into DB immediatly, without placing it in pending inserts List. Not recommended.
         /// </summary>
-        /// <param name="animeId">Anime ID on Shikimori.</param>
+        /// <param name="titleId">titleId on Shikimori.</param>
         /// <param name="updatedAt">ISO8601 DateTime format string.</param>
         /// <param name="folderName">Folder, where the .md file created from the titles list will be put.</param>
-        void UpsertAnime(long animeId, string updatedAt, string folderName);
+        void UpsertTitle(long titleId, string updatedAt, string folderName);
     }
 
-    public class AnimeCacheRepository : IAnimeCacheRepository
+    public class AnimeCacheRepository : ICacheRepository
     {
         private readonly string _dbPath;
         private readonly string _connectionString;
@@ -121,7 +121,7 @@ namespace RtD.Services
             _pendingUpserts.Clear();
         }
 
-        public void UpsertAnime(long animeId, string updatedAt, string folderName)
+        public void UpsertTitle(long animeId, string updatedAt, string folderName)
         {
             using var transaction = _connection.BeginTransaction();
 
