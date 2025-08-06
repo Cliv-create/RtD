@@ -17,24 +17,6 @@ using RtD.Utils;
 
 class Program
 {
-    // TODO: Add global try catch?
-    private const string GraphQLEndpoint = "https://shikimori.one/api/graphql";
-
-    private const string GraphQLQuery = @"
-    query($page: PositiveInt!, $limit: PositiveInt!, $userId: ID!) {
-      userRates(page: $page, limit: $limit, userId: $userId, targetType: Anime, order: {field: updated_at, order: desc}) {
-        id
-        anime { id malId russian name url genres { name } episodes description }
-        text
-        createdAt
-        updatedAt
-        score
-        status
-        rewatches
-      }
-    }
-    ";
-
     /*
      * Private marker for your notes.
      * After reading API output and attempting to write text into a file, private marker will stop writer from overwriting your additional notes.
@@ -127,28 +109,16 @@ class Program
             }
 
             // TODO: Add rtd_config.json value for customizing anime_cache.db location path.
-            // TODO: Review updatedAtCache handling. For large lists issues with memory comsumption can appear.
             var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
 
             database_initialization_timer.Start();
-            var cache = new AnimeCacheRepository(dbPath);
+            IAnimeCacheRepository cache = new AnimeCacheRepository(dbPath);
             database_initialization_timer.Stop();
 
-            database_executuion_time_timer.Start();
-            var updatedAtCache = cache.LoadAllUpdatedAt();
-            database_executuion_time_timer.Stop();
-
-            // API request related values
-            //
-            // Maybe this will improve api call execution time?
-            var handler = new SocketsHttpHandler
-            {
-                PooledConnectionLifetime = TimeSpan.FromMinutes(2),
-                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-                MaxConnectionsPerServer = 10
-            };
-            using var http = new HttpClient(handler);
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("RtD/1.0");
+            // TODO: Add timers to DB access.
+            // database_executuion_time_timer.Start();
+            // var updatedAtCache = cache.LoadAllUpdatedAt();
+            // database_executuion_time_timer.Stop();
 
             const int limit = 50;
             int page = 1;
@@ -161,33 +131,11 @@ class Program
 
             do
             {
-                var variables = new { page, limit, userId };
+                var api_service = new HttpApiService(api_request_time_timer);
+                var shikimori_api_service = new ShikimoriApiService(api_service);
 
-                var payloadObj = new { operationName = (string?)null, query = GraphQLQuery, variables };
-
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-                };
-
-                var payload = JsonSerializer.Serialize(payloadObj, options);
-
-                // Console.WriteLine(payload);
-
-                api_request_time_timer.Start();
-                var response = await http.PostAsync(GraphQLEndpoint, new StringContent(payload, Encoding.UTF8, "application/json"));
-                api_request_time_timer.Stop();
-
-                var rawResponse = await response.Content.ReadAsStringAsync();
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    Console.Error.WriteLine($"GraphQL Error: {(int)response.StatusCode} {response.ReasonPhrase}");
-                    Console.Error.WriteLine(rawResponse);
-
-                    return 1;
-                }
+                // TODO: Ensure the timings works correctly
+                var rawResponse = await shikimori_api_service.FetchRates(userId, page, limit);
 
                 var data = JsonSerializer.Deserialize<GraphQLResponse>(rawResponse, AppJsonContext.Default.GraphQLResponse);
 
@@ -208,7 +156,7 @@ class Program
                     var filePath = Path.Combine(dir, folderName + ".md");
 
                     // Check if update is needed
-                    updatedAtCache.TryGetValue(animeId, out string? cached);
+                    var cached = cache.GetUpdatedAt(animeId);
                     if (cached == rate.UpdatedAt)
                     {
                         Console.WriteLine($"No changes: {filePath}");
@@ -247,11 +195,14 @@ class Program
                         Console.WriteLine($"Created: {filePath}");
                     }
 
-                    cache.UpsertAnime(animeId, rate.UpdatedAt, folderName);
+                    cache.QueueUpsert(animeId, rate.UpdatedAt, folderName);
                 }
 
                 page++;
             } while (hasMore);
+
+            // Make sure all of the data is upserted.
+            cache.FlushUpserts();
 
             executuion_time_timer.Stop();
 
@@ -259,7 +210,7 @@ class Program
             Console.WriteLine($"Pure application execution time (no network):\n{executuion_time_timer.Elapsed - api_request_time_timer.Elapsed}");
 
             Console.WriteLine($"Database initialization timer: {database_initialization_timer.ElapsedMilliseconds} ms");
-            Console.WriteLine($"Database execution timer: {database_executuion_time_timer.ElapsedMilliseconds} ms");
+            // Console.WriteLine($"Database execution timer: {database_executuion_time_timer.ElapsedMilliseconds} ms");
 
             Console.WriteLine($"API call execution time: {api_request_time_timer.ElapsedMilliseconds} ms");
 
@@ -269,6 +220,12 @@ class Program
 
             Console.WriteLine("Finished processing.");
             return 0;
+        }
+        catch (HttpRequestException httpEx)
+        {
+            Console.Error.WriteLine("GraphQL Error: Request failed.");
+            Console.Error.WriteLine(httpEx.Message);
+            return 1;
         }
         catch (Exception ex)
         {

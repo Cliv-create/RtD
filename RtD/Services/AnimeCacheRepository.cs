@@ -6,15 +6,49 @@ using System.IO;
 
 namespace RtD.Services
 {
-    public class AnimeCacheRepository
+    public interface IAnimeCacheRepository
+    {
+        /// <summary>
+        /// Returns UpdatedAt string value for given animeId
+        /// </summary>
+        /// <param name="animeId">animeId from anime id on Shikimori (see DB implementation).</param>
+        /// <returns>updated_at string in ISO8601 DateTime format.</returns>
+        string? GetUpdatedAt(long animeId);
+        /// <summary>
+        /// Adds passed variables to the pending inserts List that will be batch inserted into DB.
+        /// </summary>
+        /// <param name="animeId">Anime ID on Shikimori.</param>
+        /// <param name="updatedAt">ISO8601 DateTime format string.</param>
+        /// <param name="folderName">Folder, where the .md file created from the titles list will be put.</param>
+        void QueueUpsert(long animeId, string updatedAt, string folderName);
+        /// <summary>
+        /// Starts SQL transaction that will insert all of the values from pending inserts List to the DB.
+        /// </summary>
+        void FlushUpserts();
+        /// <summary>
+        /// Inserts values into DB immediatly, without placing it in pending inserts List. Not recommended.
+        /// </summary>
+        /// <param name="animeId">Anime ID on Shikimori.</param>
+        /// <param name="updatedAt">ISO8601 DateTime format string.</param>
+        /// <param name="folderName">Folder, where the .md file created from the titles list will be put.</param>
+        void UpsertAnime(long animeId, string updatedAt, string folderName);
+    }
+
+    public class AnimeCacheRepository : IAnimeCacheRepository
     {
         private readonly string _dbPath;
         private readonly string _connectionString;
+        private readonly SQLiteConnection _connection;
+
+        private readonly List<(long animeId, string updatedAt, string folderName)> _pendingUpserts = new(batch_size);
+        private const int batch_size = 50;
 
         public AnimeCacheRepository(string dbFilePath)
         {
             _dbPath = dbFilePath;
             _connectionString = $"Data Source={_dbPath};Version=3;";
+            _connection = new SQLiteConnection(_connectionString);
+            _connection.Open();
             InitializeDatabase();
         }
 
@@ -25,9 +59,6 @@ namespace RtD.Services
                 SQLiteConnection.CreateFile(_dbPath);
             }
 
-            using var connection = new SQLiteConnection(_connectionString);
-            connection.Open();
-
             string createTableQuery = @"
                 CREATE TABLE IF NOT EXISTS anime_cache (
                     anime_id     INTEGER PRIMARY KEY,
@@ -35,38 +66,64 @@ namespace RtD.Services
                     folder_name  TEXT NOT NULL
                 );";
 
-            using var command = new SQLiteCommand(createTableQuery, connection);
+            using var command = new SQLiteCommand(createTableQuery, _connection);
             command.ExecuteNonQuery();
         }
 
-        public Dictionary<long, string> LoadAllUpdatedAt()
+        public string? GetUpdatedAt(long animeId)
         {
-            var result = new Dictionary<long, string>();
 
-            using var connection = new SQLiteConnection(_connectionString);
-            connection.Open();
+            string query = "SELECT updated_at FROM anime_cache WHERE anime_id = @id";
 
-            string query = "SELECT anime_id, updated_at FROM anime_cache";
+            using var command = new SQLiteCommand(query, _connection);
+            command.Parameters.AddWithValue("@id", animeId);
 
-            using var command = new SQLiteCommand(query, connection);
-            using var reader = command.ExecuteReader();
+            var result = command.ExecuteScalar();
+            return result?.ToString();
+        }
 
-            while (reader.Read())
+        public void QueueUpsert(long animeId, string updatedAt, string folderName)
+        {
+            _pendingUpserts.Add((animeId, updatedAt, folderName));
+
+            if (_pendingUpserts.Count >= batch_size)
             {
-                long id = reader.GetInt64(0);
-                string updatedAt = reader.GetString(1);
-                result[id] = updatedAt;
+                FlushUpserts();
+            }
+        }
+
+        public void FlushUpserts()
+        {
+            if (_pendingUpserts.Count == 0) return;
+
+            using var transaction = _connection.BeginTransaction();
+
+            string upsertQuery = @"
+                INSERT INTO anime_cache (anime_id, updated_at, folder_name)
+                VALUES (@id, @updatedAt, @folderName)
+                ON CONFLICT(anime_id)
+                DO UPDATE SET updated_at = excluded.updated_at,
+                              folder_name = excluded.folder_name;
+            ";
+
+            using var command = new SQLiteCommand(upsertQuery, _connection);
+
+            foreach (var (animeId, updatedAt, folderName) in _pendingUpserts)
+            {
+                command.Parameters.Clear();
+                command.Parameters.AddWithValue("@id", animeId);
+                command.Parameters.AddWithValue("@updatedAt", updatedAt);
+                command.Parameters.AddWithValue("@folderName", folderName);
+                command.ExecuteNonQuery();
             }
 
-            return result;
+            transaction.Commit();
+            _pendingUpserts.Clear();
         }
 
         public void UpsertAnime(long animeId, string updatedAt, string folderName)
         {
-            using var connection = new SQLiteConnection(_connectionString);
-            connection.Open();
-
-            using var transaction = connection.BeginTransaction();
+            using var transaction = _connection.BeginTransaction();
 
             string upsertQuery = @"
                 INSERT INTO anime_cache (anime_id, updated_at, folder_name)
@@ -76,7 +133,7 @@ namespace RtD.Services
                             folder_name = excluded.folder_name;
             ";
 
-            using var command = new SQLiteCommand(upsertQuery, connection);
+            using var command = new SQLiteCommand(upsertQuery, _connection);
             command.Parameters.AddWithValue("@id", animeId);
             command.Parameters.AddWithValue("@updatedAt", updatedAt);
             command.Parameters.AddWithValue("@folderName", folderName);

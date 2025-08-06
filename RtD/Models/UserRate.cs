@@ -2,7 +2,7 @@ namespace RtD.Models
 {
     using System.Text.Json.Serialization;
 
-    class UserRate
+    public class UserRate
     {
         [JsonPropertyName("anime")] public Anime Anime { get; set; }
         [JsonPropertyName("text")] public string Text { get; set; }
