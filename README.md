@@ -1,5 +1,7 @@
 # RtD :card_file_box:
 
+[Читать на русском](README_RU.md)
+
 # Why?
 
 In your anime list on Shikimori you can add comments to the title. Currently, the character limit is 4067.  
@@ -56,7 +58,7 @@ rtd_config.json example contents:
 
 ### :floppy_disk: anime_cache.db
   
-Now, `anime_cache.db` file is created upon programs launch (if none was present).  
+`anime_cache.db` file is created upon program launch (if none was present).  
 This file will contain cached values for `anime_id`, `updatedAt` and `folder_name`.  
 > [!CAUTION]
 > `anime_cache.db` is very important! Make sure you don't lose it!

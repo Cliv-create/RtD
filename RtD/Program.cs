@@ -229,7 +229,7 @@ class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("Fatal error: " + ex.Message);
+            Console.Error.WriteLine("Unexpected error: " + ex.Message);
 
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
