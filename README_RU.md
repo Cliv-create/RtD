@@ -22,6 +22,7 @@
 > :open_file_folder: Корневая папка
 > > :open_file_folder: Папка с названием тайтла
 > > > :page_facing_up: Файл с названием тайтла и расширением `.md`
+> 
 > > :open_file_folder: Папка `Manga`
 > > > :open_file_folder: Папки `manga / manhwa / manhua / light_novel / novel / one_shot / doujin`
 > > > > Файл с названием тайтла и расширением `.md`

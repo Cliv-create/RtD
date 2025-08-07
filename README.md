@@ -21,7 +21,8 @@ You enter Shikimori userId.
 
 > :open_file_folder: Root folder
 > > :open_file_folder: "Title Name" folder
-> > > :page_facing_up: "Title Name.md" file  
+> > > :page_facing_up: "Title Name.md" file
+> 
 > > :open_file_folder: `Manga` folder
 > > > :open_file_folder: `manga / manhwa / manhua / light_novel / novel / one_shot / doujin` folders
 > > > > "Title Name.md" file
