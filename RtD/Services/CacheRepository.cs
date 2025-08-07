@@ -142,4 +142,112 @@ namespace RtD.Services
             transaction.Commit();
         }
     }
+
+    public class MangaCacheRepository : ICacheRepository
+    {
+        private readonly string _dbPath;
+        private readonly string _connectionString;
+        private readonly SQLiteConnection _connection;
+
+        private readonly List<(long mangaId, string updatedAt, string folderName)> _pendingUpserts = new(batch_size);
+        private const int batch_size = 50;
+
+        public MangaCacheRepository(string dbFilePath)
+        {
+            _dbPath = dbFilePath;
+            _connectionString = $"Data Source={_dbPath};Version=3;";
+            _connection = new SQLiteConnection(_connectionString);
+            _connection.Open();
+            InitializeDatabase();
+        }
+
+        private void InitializeDatabase()
+        {
+            if (!File.Exists(_dbPath))
+            {
+                SQLiteConnection.CreateFile(_dbPath);
+            }
+
+            string createTableQuery = @"
+                CREATE TABLE IF NOT EXISTS manga_cache (
+                    manga_id     INTEGER PRIMARY KEY,
+                    updated_at   TEXT NOT NULL,
+                    folder_name  TEXT NOT NULL
+                );";
+
+            using var command = new SQLiteCommand(createTableQuery, _connection);
+            command.ExecuteNonQuery();
+        }
+
+        public string? GetUpdatedAt(long mangaId)
+        {
+            string query = "SELECT updated_at FROM manga_cache WHERE manga_id = @id";
+
+            using var command = new SQLiteCommand(query, _connection);
+            command.Parameters.AddWithValue("@id", mangaId);
+
+            var result = command.ExecuteScalar();
+            return result?.ToString();
+        }
+
+        public void QueueUpsert(long mangaId, string updatedAt, string folderName)
+        {
+            _pendingUpserts.Add((mangaId, updatedAt, folderName));
+
+            if (_pendingUpserts.Count >= batch_size)
+            {
+                FlushUpserts();
+            }
+        }
+
+        public void FlushUpserts()
+        {
+            if (_pendingUpserts.Count == 0) return;
+
+            using var transaction = _connection.BeginTransaction();
+
+            string upsertQuery = @"
+                INSERT INTO manga_cache (manga_id, updated_at, folder_name)
+                VALUES (@id, @updatedAt, @folderName)
+                ON CONFLICT(manga_id)
+                DO UPDATE SET updated_at = excluded.updated_at,
+                              folder_name = excluded.folder_name;
+            ";
+
+            using var command = new SQLiteCommand(upsertQuery, _connection);
+
+            foreach (var (mangaId, updatedAt, folderName) in _pendingUpserts)
+            {
+                command.Parameters.Clear();
+                command.Parameters.AddWithValue("@id", mangaId);
+                command.Parameters.AddWithValue("@updatedAt", updatedAt);
+                command.Parameters.AddWithValue("@folderName", folderName);
+                command.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+            _pendingUpserts.Clear();
+        }
+
+        public void UpsertTitle(long mangaId, string updatedAt, string folderName)
+        {
+            using var transaction = _connection.BeginTransaction();
+
+            string upsertQuery = @"
+                INSERT INTO manga_cache (manga_id, updated_at, folder_name)
+                VALUES (@id, @updatedAt, @folderName)
+                ON CONFLICT(manga_id)
+                DO UPDATE SET updated_at = excluded.updated_at,
+                            folder_name = excluded.folder_name;
+            ";
+
+            using var command = new SQLiteCommand(upsertQuery, _connection);
+            command.Parameters.AddWithValue("@id", mangaId);
+            command.Parameters.AddWithValue("@updatedAt", updatedAt);
+            command.Parameters.AddWithValue("@folderName", folderName);
+            command.ExecuteNonQuery();
+
+            transaction.Commit();
+        }
+    }
 }

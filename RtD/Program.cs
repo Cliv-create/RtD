@@ -42,6 +42,7 @@ class Program
             // RootPath - string
             // UserId - number
 
+            // TODO: Add rtd_config.json value for OAuth2ApplicationName so each user can input his own application name into the program
             // TODO: Add an option for files indentation. Whether or not to nest .md files into their own folder?
             // TODO: Add clarification messages for network requests?
 
@@ -108,6 +109,7 @@ class Program
                 }
             }
 
+            /* Old fetching approach, left for testing purposes
             // TODO: Add rtd_config.json value for customizing anime_cache.db location path.
             var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
             Console.WriteLine($"Found DB: {dbPath}");
@@ -124,6 +126,9 @@ class Program
             const int limit = 50;
             int page = 1;
             bool hasMore = true;
+            // TODO: Add manga fetching feature using if statements for this bool value
+            // bool wasAnimeProcessed = false;
+            // After anime is processed, switch to different Service
 
             // Statistics values
             int anime_entries_amount = 0;
@@ -201,11 +206,73 @@ class Program
 
                 page++;
             } while (hasMore);
+            */
 
-            // Make sure all of the data is upserted.
-            cache.FlushUpserts();
+            var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
+            Console.WriteLine($"Found DB: {dbPath}");
+
+            database_initialization_timer.Start();
+            ICacheRepository animeCache = new AnimeCacheRepository(dbPath);
+            ICacheRepository mangaCache = new MangaCacheRepository(dbPath);
+            database_initialization_timer.Stop();
+
+            var processor = new MediaProcessor(rootPath, PrivateMarker);
+            var api_service = new HttpApiService(api_request_time_timer);
+
+            int titles_entries_amount = 0;
+            int titles_entries_updated_amount = 0;
+            int titles_entries_created_amount = 0;
+
+            // Process Anime
+            var animeService = new ShikimoriAnimeApiService(api_service);
+            var animeContext = new MediaContext<AnimeUserRate, Anime>
+            {
+                MediaType = "Anime",
+                FetchRatesAsync = async (page, limit) =>
+                {
+                    var rawResponse = await animeService.FetchRates(userId, page, limit);
+                    var data = JsonSerializer.Deserialize<GraphQLResponse<AnimeResponseData>>(rawResponse, AppJsonContext.Default.GraphQLResponseAnimeResponseData);
+                    return data?.Data?.UserRates ?? new List<AnimeUserRate>();
+                },
+                GetMedia = rate => rate.Anime,
+                GetId = anime => anime.Id,
+                GetTitle = anime => anime.Russian ?? anime.Name,
+                GetUpdatedAt = rate => rate.UpdatedAt,
+                BuildFrontmatter = (rate, anime) => BuildYamlAnimeFrontmatter(anime, rate.Text, rate.CreatedAt, rate.UpdatedAt),
+                Cache = animeCache
+            };
+
+            var animeStats = await processor.ProcessMediaAsync(animeContext);
+
+            // Process Manga
+            var mangaService = new ShikimoriMangaApiService(api_service);
+            var mangaContext = new MediaContext<MangaUserRate, Manga>
+            {
+                MediaType = "Manga",
+                FetchRatesAsync = async (page, limit) =>
+                {
+                    var rawResponse = await mangaService.FetchRates(userId, page, limit);
+                    var data = JsonSerializer.Deserialize<GraphQLResponse<MangaResponseData>>(rawResponse, AppJsonContext.Default.GraphQLResponseMangaResponseData);
+                    return data?.Data?.UserRates ?? new List<MangaUserRate>();
+                },
+                GetMedia = rate => rate.Manga,
+                GetId = manga => manga.Id,
+                GetTitle = manga => manga.Russian ?? manga.Name,
+                GetUpdatedAt = rate => rate.UpdatedAt,
+                BuildFrontmatter = (rate, manga) => BuildYamlMangaFrontmatter(manga, rate.Text, rate.CreatedAt, rate.UpdatedAt),
+                Cache = mangaCache,
+
+                GetSubType = manga => string.IsNullOrEmpty(manga.Kind) ? "Unknown" : manga.Kind
+            };
+
+            var mangaStats = await processor.ProcessMediaAsync(mangaContext);
 
             executuion_time_timer.Stop();
+
+            // Merge stats
+            titles_entries_amount = animeStats.EntriesProcessed + mangaStats.EntriesProcessed;
+            titles_entries_updated_amount = animeStats.EntriesUpdated + mangaStats.EntriesUpdated;
+            titles_entries_created_amount = animeStats.EntriesCreated + mangaStats.EntriesCreated;
 
             Console.WriteLine($"Application execution time:\n{executuion_time_timer.Elapsed}");
             Console.WriteLine($"Pure application execution time (no network):\n{executuion_time_timer.Elapsed - api_request_time_timer.Elapsed}");
@@ -215,9 +282,9 @@ class Program
 
             Console.WriteLine($"API call execution time: {api_request_time_timer.ElapsedMilliseconds} ms");
 
-            Console.WriteLine($"Anime entries processed: {anime_entries_amount}");
-            Console.WriteLine($"Anime entries updated:   {anime_entries_updated_amount}");
-            Console.WriteLine($"Anime entries created:   {anime_entries_created_amount}");
+            Console.WriteLine($"Entries processed: {titles_entries_amount}");
+            Console.WriteLine($"Entries updated:   {titles_entries_updated_amount}");
+            Console.WriteLine($"Entries created:   {titles_entries_created_amount}");
 
             Console.WriteLine("Finished processing.");
             return 0;

@@ -8,6 +8,7 @@ using System.Diagnostics;
 
 namespace RtD.Services
 {
+    // TODO: Implement rate limiting. 5 rps / 90 rpm
     public interface IApiService
     {
         Task<string> PostJsonAsync(string url, string jsonBody);
