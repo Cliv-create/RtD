@@ -80,6 +80,10 @@ Built using .NET Core 9 and compiled in Visual Studio 2022 (v17+)
 
 ### Additional info
 
+`fd` and `sd` releases  
+`fd` - Framework Dependent. Smaller size, but needs `.NET Framework` installed on PC.  
+`sd` - Self Contained. Larger size, but doesn't need `.NET Framework` installed on PC.  
+
 File operations and API calls are done in batches of 50 (see limit value). This is because a new API call is performed and current API "batch size limit" is 50 titles at a time.  
 Note, above is applied when re-fetching your entire anime list, or when you didn't launch program for a while, so there's more then 50 changes to your anime list. Also, it's applied when there's no `anime_cache.db` present near `RtD.exe`.  
   
