@@ -109,105 +109,6 @@ class Program
                 }
             }
 
-            /* Old fetching approach, left for testing purposes
-            // TODO: Add rtd_config.json value for customizing anime_cache.db location path.
-            var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
-            Console.WriteLine($"Found DB: {dbPath}");
-
-            database_initialization_timer.Start();
-            ICacheRepository cache = new AnimeCacheRepository(dbPath);
-            database_initialization_timer.Stop();
-
-            // TODO: Add timers to DB access.
-            // database_executuion_time_timer.Start();
-            // var updatedAtCache = cache.LoadAllUpdatedAt();
-            // database_executuion_time_timer.Stop();
-
-            const int limit = 50;
-            int page = 1;
-            bool hasMore = true;
-            // TODO: Add manga fetching feature using if statements for this bool value
-            // bool wasAnimeProcessed = false;
-            // After anime is processed, switch to different Service
-
-            // Statistics values
-            int anime_entries_amount = 0;
-            int anime_entries_updated_amount = 0;
-            int anime_entries_created_amount = 0;
-
-            do
-            {
-                var api_service = new HttpApiService(api_request_time_timer);
-                var shikimori_api_service = new ShikimoriAnimeApiService(api_service);
-
-                // TODO: Ensure the timings works correctly
-                var rawResponse = await shikimori_api_service.FetchRates(userId, page, limit);
-
-                var data = JsonSerializer.Deserialize<GraphQLResponse<AnimeResponseData>>(rawResponse, AppJsonContext.Default.GraphQLResponseAnimeResponseData);
-
-                var rates = data?.Data?.UserRates ?? new List<AnimeUserRate>();
-                hasMore = rates.Count == limit;
-
-                foreach (var rate in rates)
-                {
-                    Interlocked.Increment(ref anime_entries_amount);
-
-                    var anime = rate.Anime;
-                    if (!long.TryParse(anime.Id, out long animeId)) continue;
-
-                    // Prepare paths
-                    var folderName = Helpers.SanitizeFileName(anime.Russian ?? anime.Name);
-                    var dir = Path.Combine(rootPath, folderName);
-
-                    var filePath = Path.Combine(dir, folderName + ".md");
-
-                    // Check if update is needed
-                    var cached = cache.GetUpdatedAt(animeId);
-                    if (cached == rate.UpdatedAt)
-                    {
-                        Console.WriteLine($"No changes: {filePath}");
-                        hasMore = false;
-                        break;
-                    }
-
-                    Directory.CreateDirectory(dir);
-
-                    // Generate new YAML frontmatter
-                    var newYaml = BuildYamlAnimeFrontmatter(
-                        anime,
-                        rate.Text,
-                        rate.CreatedAt,
-                        rate.UpdatedAt
-                    );
-
-                    // Write file
-                    if (File.Exists(filePath))
-                    {
-                        var existingPrivate = await ExtractPrivateSectionAsync(filePath);
-
-                        var merged = newYaml + existingPrivate;
-                        await File.WriteAllTextAsync(filePath, merged, Encoding.UTF8);
-
-                        Interlocked.Increment(ref anime_entries_updated_amount);
-                        Console.WriteLine($"Updated: {filePath}");
-                    }
-                    else
-                    {
-                        var fullContent = newYaml + $"\n{PrivateMarker}\n\n";
-
-                        await File.WriteAllTextAsync(filePath, fullContent, Encoding.UTF8);
-
-                        Interlocked.Increment(ref anime_entries_created_amount);
-                        Console.WriteLine($"Created: {filePath}");
-                    }
-
-                    cache.QueueUpsert(animeId, rate.UpdatedAt, folderName);
-                }
-
-                page++;
-            } while (hasMore);
-            */
-
             var dbPath = Path.Combine(AppContext.BaseDirectory, "anime_cache.db");
             Console.WriteLine($"Found DB: {dbPath}");
 
@@ -215,6 +116,53 @@ class Program
             ICacheRepository animeCache = new AnimeCacheRepository(dbPath);
             ICacheRepository mangaCache = new MangaCacheRepository(dbPath);
             database_initialization_timer.Stop();
+
+            if (!AutoLoadingActive)
+            {
+                Console.Write("Would you like to run the Rebuild Engine now? (y/n): ");
+                string? runRebuild = Console.ReadLine()?.Trim().ToLowerInvariant();
+
+                if (runRebuild == "y" || runRebuild == "yes")
+                {
+                    Stopwatch rebuild_engine_executuion_time_timer = new Stopwatch();
+
+                    Console.Write("Enter destination folder for rebuild: ");
+                    string? destinationRoot = Console.ReadLine()?.Trim().Trim('"');
+
+                    if (string.IsNullOrWhiteSpace(destinationRoot))
+                    {
+                        Console.WriteLine("Invalid destination path.");
+                        return 1;
+                    }
+
+                    // Configure rebuild options (these could also be read from config)
+                    var rebuildOptions = new RebuildOptions
+                    {
+                        UseCacheOnly = true,
+                        CreatePlaceholdersForMissing = false,
+                        BackupDestinationIfExists = true,
+                        DryRun = false,
+                        MangaFolderPrefix = "!_"
+                    };
+
+                    var engine = new RebuildEngine(rootPath!, animeCache, mangaCache);
+
+                    Console.WriteLine("Starting rebuild...");
+
+                    rebuild_engine_executuion_time_timer.Start();
+                    var result = await engine.RunAsync(destinationRoot!, rebuildOptions);
+                    rebuild_engine_executuion_time_timer.Stop();
+
+                    Console.WriteLine("\nRebuild completed:");
+                    Console.WriteLine($"  Total processed:               {result.TotalProcessed}");
+                    Console.WriteLine($"  Files copied:                  {result.FilesCopied}");
+                    Console.WriteLine($"  Placeholders created:          {result.PlaceholdersCreated}");
+                    Console.WriteLine($"  Missing files:                 {result.MissingFiles}");
+                    Console.WriteLine($"  Rebuild engine execution time: {rebuild_engine_executuion_time_timer.Elapsed}");
+
+                    return 0;
+                }
+            }
 
             var processor = new MediaProcessor(rootPath, PrivateMarker);
             var api_service = new HttpApiService(api_request_time_timer);
@@ -239,7 +187,8 @@ class Program
                 GetTitle = anime => anime.Russian ?? anime.Name,
                 GetUpdatedAt = rate => rate.UpdatedAt,
                 BuildFrontmatter = (rate, anime) => BuildYamlAnimeFrontmatter(anime, rate.Text, rate.CreatedAt, rate.UpdatedAt),
-                Cache = animeCache
+                Cache = animeCache,
+                GetSubType = anime => !string.IsNullOrEmpty(anime.Kind) ? anime.Kind : "unknown"
             };
 
             var animeStats = await processor.ProcessMediaAsync(animeContext);
@@ -248,7 +197,7 @@ class Program
             var mangaService = new ShikimoriMangaApiService(api_service);
             var mangaContext = new MediaContext<MangaUserRate, Manga>
             {
-                MediaType = "Manga",
+                MediaType = "!_Manga",
                 FetchRatesAsync = async (page, limit) =>
                 {
                     var rawResponse = await mangaService.FetchRates(userId, page, limit);
@@ -261,7 +210,6 @@ class Program
                 GetUpdatedAt = rate => rate.UpdatedAt,
                 BuildFrontmatter = (rate, manga) => BuildYamlMangaFrontmatter(manga, rate.Text, rate.CreatedAt, rate.UpdatedAt),
                 Cache = mangaCache,
-
                 GetSubType = manga => string.IsNullOrEmpty(manga.Kind) ? "Unknown" : manga.Kind
             };
 
@@ -287,6 +235,7 @@ class Program
             Console.WriteLine($"Entries created:   {titles_entries_created_amount}");
 
             Console.WriteLine("Finished processing.");
+            
             return 0;
         }
         catch (HttpRequestException httpEx)

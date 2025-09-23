@@ -37,16 +37,13 @@ namespace RtD.Services
 
                     var mediaIdStr = context.GetId(media);
                     if (string.IsNullOrEmpty(mediaIdStr) || !long.TryParse(mediaIdStr, out long mediaId)) continue;
-
+                    
+                    var mediaSubType = context.GetSubType?.Invoke(media) ?? "unknown";
+                    
                     // Prepare paths
                     var folderName = Helpers.SanitizeFileName(context.GetTitle(media));
-                    // var dir = Path.Combine(_rootPath, folderName);
-                    /*
-                    var dir = context.GetSubType != null 
-                        ? Path.Combine(_rootPath, context.MediaType, context.GetSubType(media), folderName)
-                        : Path.Combine(_rootPath, context.MediaType, folderName);
-                    */
-                    var dir = context.MediaType == "Anime" 
+
+                    var dir = context.MediaType == "Anime"
                     ? Path.Combine(_rootPath, folderName)
                     : Path.Combine(_rootPath, context.MediaType, context.GetSubType!(media), folderName);
                     var filePath = Path.Combine(dir, folderName + ".md");
@@ -86,7 +83,7 @@ namespace RtD.Services
                         Console.WriteLine($"Created: {filePath}");
                     }
 
-                    context.Cache.QueueUpsert(mediaId, updatedAt, folderName);
+                    context.Cache.QueueUpsert(mediaId, updatedAt, folderName, mediaSubType);
                 }
 
                 page++;
@@ -149,9 +146,6 @@ namespace RtD.Services
         public required Func<TRate, TMedia, string> BuildFrontmatter { get; init; }
         public required ICacheRepository Cache { get; init; }
 
-        /// <summary>
-        /// Intended for "Manga" MediaType.
-        /// </summary>
         public Func<TMedia, string>? GetSubType { get; init; }
     }
 

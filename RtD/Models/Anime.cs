@@ -11,6 +11,7 @@ namespace RtD.Models
         [JsonPropertyName("alternative_name")] public string? AlternativeName { get; set; }
         [JsonPropertyName("url")] public string Url { get; set; }
         [JsonPropertyName("genres")] public List<Genre>? Genres { get; set; }
+        [JsonPropertyName("kind")] public string? Kind { get; set; }
         [JsonPropertyName("episodes")] public int? Episodes { get; set; }
         [JsonPropertyName("description")] public string? Description { get; set; }
     }

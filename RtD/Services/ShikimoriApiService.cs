@@ -21,7 +21,7 @@ namespace RtD.Services
             query($page: PositiveInt!, $limit: PositiveInt!, $userId: ID!) {
               userRates(page: $page, limit: $limit, userId: $userId, targetType: Anime, order: {field: updated_at, order: desc}) {
                 id
-                anime { id malId russian name url genres { name } episodes description }
+                anime { id malId russian name url genres { name } kind episodes description }
                 text
                 createdAt
                 updatedAt
