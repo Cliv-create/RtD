@@ -30,7 +30,7 @@ namespace RtD.Services
 
     public class RebuildEngine
     {
-        private const int BatchSize = 50;
+        private const int BatchSize = 1000;
         private readonly string _sourceRoot;
         private readonly ICacheRepository _animeCache;
         private readonly ICacheRepository _mangaCache;
@@ -51,6 +51,13 @@ namespace RtD.Services
 
             var result = new RebuildResult();
 
+            // Building the file index once in attempt to recude I/O operations for the disk and increase performance.
+            Console.WriteLine("Building file index from source directory...");
+            var fileIndex = Directory.EnumerateFiles(_sourceRoot, "*.md", SearchOption.AllDirectories)
+                                     .GroupBy(path => Path.GetFileNameWithoutExtension(path), StringComparer.OrdinalIgnoreCase)
+                                     .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+            Console.WriteLine($"File index created with {fileIndex.Count} unique file names.");
+
             if (Directory.Exists(destinationRoot) && !options.DryRun)
             {
                 if (options.BackupDestinationIfExists)
@@ -69,15 +76,18 @@ namespace RtD.Services
                 Directory.CreateDirectory(destinationRoot);
             }
 
-            await ProcessCacheAsync(_animeCache, destinationRoot, "Anime", options, result);
-            await ProcessCacheAsync(_mangaCache, destinationRoot, "Manga", options, result);
+            await ProcessCacheAsync(_animeCache, destinationRoot, "Anime", options, result, fileIndex);
+            await ProcessCacheAsync(_mangaCache, destinationRoot, "Manga", options, result, fileIndex);
+
+            Console.WriteLine($"\nEngine finished. Total unique source files indexed: {fileIndex.Count}");
 
             return result;
         }
 
-        private async Task ProcessCacheAsync(ICacheRepository cache, string destinationRoot, string mediaType, RebuildOptions options, RebuildResult result)
+        private async Task ProcessCacheAsync(ICacheRepository cache, string destinationRoot, string mediaType, RebuildOptions options, RebuildResult result, Dictionary<string, List<string>> fileIndex)
         {
             int totalEntries = cache.GetTotalEntries();
+
             for (int offset = 0; offset < totalEntries; offset += BatchSize)
             {
                 IEnumerable<CacheEntry> entries = cache.GetEntries(offset, BatchSize);
@@ -88,14 +98,13 @@ namespace RtD.Services
                     string folderName = entry.FolderName;
                     string subType = entry.SubType;
 
-                    // Pass context (mediaType, subType) to FindSourceFile
-                    string? sourceFile = FindSourceFile(_sourceRoot, folderName, mediaType, subType);
+                    // Expensive operation
+                    string? sourceFile = FindSourceFile(_sourceRoot, folderName, mediaType, subType, fileIndex);
 
                     if (sourceFile == null)
                     {
                         result.MissingFiles++;
                         Console.WriteLine($"[WARN] Missing source file for ({mediaType}/{subType}): {folderName}");
-                        // Placeholder logic is fine.
                         continue;
                     }
 
@@ -105,7 +114,7 @@ namespace RtD.Services
                     {
                         destinationDirectory = Path.Combine(destinationRoot, folderName);
                     }
-                    else // It's Manga
+                    else
                     {
                         string mangaTopLevelFolder = options.MangaFolderPrefix + "Manga";
                         destinationDirectory = Path.Combine(destinationRoot, mangaTopLevelFolder, subType, folderName);
@@ -124,27 +133,29 @@ namespace RtD.Services
                 }
             }
         }
-        
-        /// <summary>
-        /// Finds the correct source file even when multiple files share the same name.
-        /// </summary>
-        private string? FindSourceFile(string root, string folderName, string mediaType, string subType)
-        {
-            var allMatches = Directory.EnumerateFiles(root, folderName + ".md", SearchOption.AllDirectories).ToList();
 
-            if (!allMatches.Any()) return null; // No file found at all.
+        /// <summary>
+        /// Finds the correct source file. Tries to resolve file conflict by comparing file paths with known subtypes.
+        /// Expects the previous file structure to be in place (to perform a migration) - "Manga" name for Manga folder.
+        /// </summary>
+        private string? FindSourceFile(string root, string folderName, string mediaType, string subType, Dictionary<string, List<string>> fileIndex)
+        {
+            // In-memory lookup instead of an expensive disk scan.
+            if (!fileIndex.TryGetValue(folderName, out var allMatches))
+            {
+                return null; // No file found at all.
+            }
+
             if (allMatches.Count == 1) return allMatches[0]; // Only one match, no confusion.
 
-            // CONFLICT RESOLUTION: More than one file has the same name.
             Console.WriteLine($"[INFO] Multiple sources found for '{folderName}'. Resolving using path...");
-            foreach(var match in allMatches) Console.WriteLine($"  - Found: {match}");
+            foreach (var match in allMatches) Console.WriteLine($"  - Found: {match}");
 
             if (mediaType == "Anime")
             {
-                // For Anime, we want the file that is NOT inside a "Manga" top-level folder.
-                var animeMatch = allMatches.FirstOrDefault(path => 
+                var animeMatch = allMatches.FirstOrDefault(path =>
                     !Path.GetRelativePath(root, path).StartsWith("Manga", StringComparison.OrdinalIgnoreCase));
-                
+
                 if (animeMatch != null)
                 {
                     Console.WriteLine($"  - Chose (Anime): {animeMatch}");
@@ -153,9 +164,8 @@ namespace RtD.Services
             }
             else // It's Manga
             {
-                // For Manga, we want the file that IS inside a "Manga" folder, and ideally, the correct subtype folder.
                 string expectedPathFragment = Path.Combine("Manga", subType);
-                var mangaMatch = allMatches.FirstOrDefault(path => 
+                var mangaMatch = allMatches.FirstOrDefault(path =>
                     Path.GetRelativePath(root, path).Contains(expectedPathFragment, StringComparison.OrdinalIgnoreCase));
 
                 if (mangaMatch != null)
@@ -165,12 +175,10 @@ namespace RtD.Services
                 }
             }
 
-            // Fallback
             Console.WriteLine($"  - [WARN] Could not resolve confidently. Defaulting to first match: {allMatches[0]}");
             return allMatches[0];
         }
 
-        // BuildPlaceholder method remains the same.
         private string BuildPlaceholder(long id, string updatedAt)
         {
             var sb = new StringBuilder();

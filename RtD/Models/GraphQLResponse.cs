@@ -6,20 +6,6 @@ namespace RtD.Models
     {
         [JsonPropertyName("data")] public T Data { get; set; }
     }
- 
-    /*
-    public class GraphQLResponse
-    {
-        [JsonPropertyName("data")] public ResponseData Data { get; set; }
-    }
-    */
-
-    /*
-    public class ResponseData
-    {
-        [JsonPropertyName("userRates")] public List<UserRate> UserRates { get; set; }
-    }
-    */
     
     public class AnimeResponseData
     {
